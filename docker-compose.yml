@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  massai-api:
+    build:
+      context: .
+      dockerfile: app/Dockerfile.fastapi
+    container_name: massai-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./config:/app/config
+    restart: always
+
+  massai-dashboard:
+    build:
+      context: .
+      dockerfile: dashboard/Dockerfile.streamlit
+    container_name: massai-dashboard
+    ports:
+      - "8501:8501"
+    depends_on:
+      - massai-api
+    restart: always

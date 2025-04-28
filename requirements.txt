@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+requests
+pydantic
+streamlit
+pyyaml
+faker
+matplotlib
+pandas
+streamlit-option-menu

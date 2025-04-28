@@ -1,0 +1,59 @@
+Consultar Todo Externo:
+  - api_name: https://jsonplaceholder.typicode.com/todos/1
+    tipo_acao: GET
+    payload: {}
+
+Onboarding de Cartão:
+  - api_name: onboarding
+    tipo_acao: POST
+    payload:
+      nome: "Nome Teste"
+      idade: 30
+
+Bloqueio de Cartão:
+  - api_name: bloqueio
+    tipo_acao: POST
+    payload:
+      motivo: "Suspeita de fraude"
+
+Desbloqueio de Cartão:
+  - api_name: desbloqueio
+    tipo_acao: POST
+    payload:
+      motivo: "Verificação concluída"
+
+Cancelamento de Cartão:
+  - api_name: cancelamento
+    tipo_acao: POST
+    payload:
+      motivo: "Cliente solicitou cancelamento"
+
+Fluxo Cartão Completo:
+  - api_name: onboarding
+    tipo_acao: POST
+    payload:
+      nome: "Novo Cliente"
+      idade: 22
+  - api_name: bloqueio
+    tipo_acao: POST
+    payload:
+      motivo: "Atraso de pagamento"
+  - api_name: desbloqueio
+    tipo_acao: POST
+    payload:
+      motivo: "Regularização financeira"
+  - api_name: cancelamento
+    tipo_acao: POST
+    payload:
+      motivo: "Cliente insatisfeito"
+
+Atualizar Cadastro (Exemplo PUT):
+  - api_name: atualizar_cadastro
+    tipo_acao: PUT
+    payload:
+      email: "cliente@teste.com"
+
+Excluir Cadastro (Exemplo DELETE):
+  - api_name: excluir_cadastro
+    tipo_acao: DELETE
+    payload: {}

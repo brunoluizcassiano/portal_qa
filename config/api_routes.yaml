@@ -1,0 +1,9 @@
+bloqueio:
+  url: "http://localhost:8080/bloqueio"
+  method: "POST"
+onboarding:
+  url: "http://localhost:8080/onboarding"
+  method: "POST"
+cancelamento:
+  url: "http://localhost:8080/cancelamento"
+  method: "POST"

@@ -1,0 +1,9 @@
+- fluxo_name: Fluxo Cartão
+  quantidade: 2
+  horario: "16:30"
+  dias_semana: ["Segunda", "Quarta", "Sexta"]
+
+- fluxo_name: Fluxo Cartão
+  quantidade: 3
+  horario: "16:32"
+  dias_semana: ["Todos"]
