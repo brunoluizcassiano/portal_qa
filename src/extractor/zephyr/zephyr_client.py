@@ -4,7 +4,9 @@ import requests
 from requests import Session
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-
+from pathlib import Path
+import pandas as pd
+import datetime as dt
 
 class ZephyrClient:
     """
@@ -75,3 +77,64 @@ class ZephyrClient:
         data = resp.json()
         values = data.get("values", [])
         return values[0] if values else None
+
+
+# ================= Helpers de extração (usados pelo FastAPI) =================
+
+def _now_tag() -> str:
+    return dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+
+def run_extracao_zephyr_diaria(
+    zephyr_cfg: Dict[str, Any],
+    app_cfg: Dict[str, Any],
+    quantidade: int = 1,
+    data_dir: Path | str = "config/data",
+) -> Dict[str, Any]:
+    """
+    Executa a extração no Zephyr Scale (test cases + últimas execuções) e grava CSVs.
+    Retorna um resumo p/ a API responder ao scheduler.
+    """
+    data_dir = Path(data_dir)
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    zc = ZephyrClient(
+        base_url=zephyr_cfg["base_url"],
+        api_token=zephyr_cfg["api_token"],
+    )
+
+    project = app_cfg.get("default_project", "PROJ")
+    tcs = zc.testcases_by_project(project_key=project)
+    tc_rows = [{"testCaseKey": t.get("key"), "name": t.get("name")} for t in tcs]
+
+    # pega últimas execuções dos primeiros N*50 testes (heurística simples)
+    exec_rows = []
+    limit = max(1, quantidade * 50)
+    for row in tc_rows[:limit]:
+        last = zc.latest_execution_by_testcase(row["testCaseKey"])
+        if last:
+            exec_rows.append(last)
+
+    df_tcs = pd.DataFrame(tc_rows)
+    df_exec = pd.DataFrame(exec_rows)
+
+    tag = _now_tag()
+    out_tc = data_dir / f"zephyr_testcases_{tag}.csv"
+    out_ex = data_dir / f"zephyr_executions_{tag}.csv"
+    df_tcs.to_csv(out_tc, index=False)
+    df_exec.to_csv(out_ex, index=False)
+
+    # versões "latest" para o dashboard
+    df_tcs.to_csv(data_dir / "zephyr_testcases_latest.csv", index=False)
+    df_exec.to_csv(data_dir / "zephyr_executions_latest.csv", index=False)
+
+    return {
+        "ok": True,
+        "source": "zephyr",
+        "testcases": len(df_tcs),
+        "executions": len(df_exec),
+        "saved": [str(out_tc), str(out_ex)],
+        "latest": [
+            "config/data/zephyr_testcases_latest.csv",
+            "config/data/zephyr_executions_latest.csv",
+        ],
+    }
