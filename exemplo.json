@@ -1,0 +1,559 @@
+[
+    {
+      "timestamp": "2025-05-02T18:25:20.841Z",
+      "uri": "https://cadastral-persons-quarkus-backend-ops.test.uat.np.santander-br.sa-east-1.santanderglobalcards.corp",
+      "path": "/v1/persondocumenttype",
+      "reqType": "GET",
+      "headers": false,
+      "token": false,
+      "body": false,
+      "statusCode": 200,
+      "response": {
+        "status": {
+          "messageId": "200",
+          "message": "OK",
+          "details": []
+        },
+        "result": [
+          {
+            "entityCode": 33,
+            "documentTypeCode": "13",
+            "documentTypeDescription": "01-CPF                        ",
+            "personTypeCode": "F",
+            "validityIndicator": true,
+            "registrationDate": "06/04/2023 15:44:37",
+            "startDate": "31/12/2000",
+            "endDate": "31/12/9999"
+          },
+          {
+            "entityCode": 33,
+            "documentTypeCode": "14",
+            "documentTypeDescription": "20-CNPJ                       ",
+            "personTypeCode": "J",
+            "validityIndicator": true,
+            "registrationDate": "06/04/2023 15:44:37",
+            "startDate": "31/12/2000",
+            "endDate": "31/12/9999"
+          }
+        ]
+      }
+    },
+    {
+      "timestamp": "2025-05-02T18:25:28.916Z",
+      "uri": "https://cadastral.api.uat.np.santander-br.sa-east-1.santanderglobalcards.corp",
+      "path": "/v1/card_onboardings/5277230388520/onboarding",
+      "reqType": "POST",
+      "headers": {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer eyJraWQiOiJVUzB1U0xkKzduNnh0Z210NG1qbm9VY21jU0xxeWJVRGlXZzVhXC9rY1I0UT0iLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOiI1Y2JpcGlubWpoMDk3Y25zNjAwc3QxaWdpaSIsInRva2VuX3VzZSI6ImFjY2VzcyIsInNjb3BlIjoiYXV0b3JpemFkb3ItcmVzb3VyY2Utc2VydmVyXC9hdXRvcml6YWRvcl9jcmVhdGUgam91cm5hbC1yZXNvdXJjZS1zZXJ2ZXJcL2pvdXJuYWxfZGVsZXRlIHNoYXJlZC1zZXJ2aWNlcy1yZXNvdXJjZS1zZXJ2ZXJcL3NoYXJlZC1zZXJ2aWNlc19jcmVhdGUgdG9rZW4tbWFuYWdlci1yZXNvdXJjZS1zZXJ2ZXJcL3Rva2VuLW1hbmFnZXJfY3JlYXRlIGNhZGFzdHJhbC1yZXNvdXJjZS1zZXJ2ZXJcL2NhZGFzdHJhbF91cGRhdGUgam91cm5hbC1yZXNvdXJjZS1zZXJ2ZXJcL2pvdXJuYWxfdXBkYXRlIGNhZGFzdHJhbC1yZXNvdXJjZS1zZXJ2ZXJcL2NhZGFzdHJhbF9kZWxldGUgbW9uZXRhcmlvLXJlc291cmNlLXNlcnZlclwvbW9uZXRhcmlvX3VwZGF0ZSBzaGFyZWQtc2VydmljZXMtcmVzb3VyY2Utc2VydmVyXC9zaGFyZWQtc2VydmljZXNfcmVhZCBtb25ldGFyaW8tcmVzb3VyY2Utc2VydmVyXC9tb25ldGFyaW9fY3JlYXRlIGF1dG9yaXphZG9yLXJlc291cmNlLXNlcnZlclwvYXV0b3JpemFkb3JfcmVhZCB0b2tlbi1tYW5hZ2VyLXJlc291cmNlLXNlcnZlclwvdG9rZW4tbWFuYWdlcl91cGRhdGUgdG9rZW4tbWFuYWdlci1yZXNvdXJjZS1zZXJ2ZXJcL3Rva2VuLW1hbmFnZXJfZGVsZXRlIGF1dG9yaXphZG9yLXJlc291cmNlLXNlcnZlclwvYXV0b3JpemFkb3JfZGVsZXRlIGpvdXJuYWwtcmVzb3VyY2Utc2VydmVyXC9qb3VybmFsX2NyZWF0ZSBtb25ldGFyaW8tcmVzb3VyY2Utc2VydmVyXC9tb25ldGFyaW9fcmVhZCBzaGFyZWQtc2VydmljZXMtcmVzb3VyY2Utc2VydmVyXC9zaGFyZWQtc2VydmljZXNfdXBkYXRlIGF1dG9yaXphZG9yLXJlc291cmNlLXNlcnZlclwvYXV0b3JpemFkb3JfdXBkYXRlIHRva2VuLW1hbmFnZXItcmVzb3VyY2Utc2VydmVyXC90b2tlbi1tYW5hZ2VyX3JlYWQgY2FkYXN0cmFsLXJlc291cmNlLXNlcnZlclwvY2FkYXN0cmFsX2NyZWF0ZSBqb3VybmFsLXJlc291cmNlLXNlcnZlclwvam91cm5hbF9yZWFkIG1vbmV0YXJpby1yZXNvdXJjZS1zZXJ2ZXJcL21vbmV0YXJpb19kZWxldGUgY2FkYXN0cmFsLXJlc291cmNlLXNlcnZlclwvY2FkYXN0cmFsX3JlYWQiLCJhdXRoX3RpbWUiOjE3NDYyMTAzMjIsImlzcyI6Imh0dHBzOlwvXC9jb2duaXRvLWlkcC5zYS1lYXN0LTEuYW1hem9uYXdzLmNvbVwvc2EtZWFzdC0xX254MzJhTzlSaCIsImV4cCI6MTc0NjIxMzkyMiwiaWF0IjoxNzQ2MjEwMzIyLCJ2ZXJzaW9uIjoyLCJqdGkiOiJkOTFiNGVjZC04OGQ4LTQwOTgtYjY1ZC01YTA3ZjNmYzU5NzgiLCJjbGllbnRfaWQiOiI1Y2JpcGlubWpoMDk3Y25zNjAwc3QxaWdpaSJ9.x3QWfI5byrWGtNxDfmh7VWdBtbRNvTQiKgUS4TkSbBWxOI2oT6GjFzGTV0wpWr8wkNBIysnUA1HFy-QLBfaDlbuZX2AU74oZSInnMjfhCEFl5LSdXjn2CooNBk3xy2Zt_evDSf0pxGTZz5VeXTZdTlb3rYgxTy8Z3CbbEO6CiDUOq7nbKjuI_2KjzaBuukaPROdpUvx8_3FIjMIhbbq4olenc1EVvEwutQdLyiIBVws-n0aEQEDqb-1HbG44RygZdWcmibCmiHsENewJotNbBUgJnVB-itbsevEuIS528_ZaGr6k8fU6a7U_CNoQ0tTXG-8kLJ4iKU0aM9cWD4Li1g",
+        "gc-request-origin-version": "V4"
+      },
+      "body": {
+        "customer": {
+          "customerId": "17041065",
+          "profile": "physical_person",
+          "originalCreationDate": "2024-04-01",
+          "person": {
+            "personName": {
+              "fullName": "Juliana Campos Sales VISA AUT GLUON"
+            },
+            "birthDate": "1990-11-08",
+            "fatherName": "Wellington Farias Albuquerque",
+            "motherName": "Ana Xavier Goulart",
+            "placeOfBirth": {
+              "country": {
+                "code": "BR"
+              },
+              "town": null
+            },
+            "politicalExposure": {
+              "isSelfDeclaredPEP": false
+            },
+            "hasDisability": false,
+            "staffCode": "statutory_director",
+            "documents": [
+              {
+                "documentTypeCode": "13",
+                "documentNumber": "29274154559",
+                "expirationDate": null,
+                "isMain": true,
+                "country": null,
+                "issueDate": null,
+                "state": null
+              }
+            ]
+          },
+          "contactPoints": [
+            {
+              "contactPointId": "1",
+              "postalAddress": {
+                "streetName": "AV ALVARES CABRAL",
+                "districtName": "SANTO AGOSTINHO",
+                "streetBuildingIdentification": "9876",
+                "countyIdentification": {
+                  "code": "0000050",
+                  "name": "BELO HORIZONTE"
+                },
+                "unitType": "0002",
+                "unitNumber": "8",
+                "floor": "AN 8",
+                "zipCode": "30170915",
+                "state": {
+                  "code": "12"
+                },
+                "country": {
+                  "code": "BR"
+                }
+              },
+              "phoneAddress": {
+                "internationalCode": "55",
+                "regionalPrefix": "11",
+                "mobileNumber": "999755856",
+                "phoneNumber": "999755856",
+                "faxNumber": null,
+                "extension": null,
+                "audit": {
+                  "creationDate": "2024-08-30"
+                }
+              },
+              "electronicAddress": {
+                "emailAddress": "elias_automacao_cypress@gmail.com"
+              },
+              "useTypes": [
+                {
+                  "code": null,
+                  "description": null
+                }
+              ],
+              "consents": [
+                {
+                  "purposeCode": "allowInfoMobile",
+                  "isConsentRightExercised": true
+                },
+                {
+                  "purposeCode": "allowAlertMobile",
+                  "isConsentRightExercised": true
+                },
+                {
+                  "purposeCode": "allowSendEmail",
+                  "isConsentRightExercised": true
+                }
+              ],
+              "preferredIndicator": false
+            }
+          ],
+          "segmentations": [
+            {
+              "segmentationCode": "PRI",
+              "segmentCode": "PRI001",
+              "executionDate": "2022-05-18"
+            }
+          ]
+        },
+        "cardCustomerContract": {
+          "contract": {
+            "center": {
+              "centerId": "0142",
+              "type": "002"
+            }
+          },
+          "isOverlimitAllowed": false,
+          "issuerProperties": {
+            "salesChannelCode": "C002",
+            "salePoint": null,
+            "lastUpdateChannel": "web",
+            "other": null,
+            "myCustomMetaData": null
+          },
+          "cardContract": {
+            "card": {
+              "type": "credit",
+              "supportedArtefacts": [
+                {
+                  "typeCode": "physical_plastic"
+                }
+              ],
+              "embossing": {
+                "cardArtCode": 861,
+                "printedName": "JULIA VISA AUT GLUON"
+              },
+              "product": {
+                "productId": "66",
+                "subproduct": {
+                  "subproductId": "443"
+                }
+              },
+              "brandCode": "visa",
+              "brandProductTypeCode": null,
+              "hasInsurance": false,
+              "deliveryOptions": {
+                "strategyCode": "simple_mail_box",
+                "priorityCode": null,
+                "customer": {
+                  "customerId": "17041065",
+                  "contactPoint": {
+                    "contactPointId": "1"
+                  }
+                },
+                "center": {
+                  "centerId": "0142",
+                  "type": "001"
+                },
+                "packageReference": "111"
+              },
+              "pinInformation": {
+                "pinBlock": null,
+                "pinEncryptionKeyEncoded": null
+              },
+              "pinDeliveryOptions": {
+                "typeCode": "sms"
+              },
+              "cardholder": {
+                "typeCode": "main_holder"
+              },
+              "associatedAccounts": [],
+              "services": [
+                {
+                  "serviceId": null,
+                  "name": null
+                }
+              ]
+            },
+            "creditLimits": [
+              {
+                "currentCreditLimit": {
+                  "amount": 99999,
+                  "currency": "BRL"
+                }
+              }
+            ],
+            "settlementConditions": {
+              "currency": {
+                "code": "BRL"
+              },
+              "periodicity": {
+                "periodTypeCode": "monthly"
+              },
+              "dueDay": 10,
+              "deliveryOptions": {
+                "strategyCode": "simple_mail_box",
+                "customer": {
+                  "customerId": "17041065",
+                  "contactPoint": {
+                    "contactPointId": "1"
+                  }
+                }
+              },
+              "isDirectDebitAccepted": false,
+              "validityPeriod": null,
+              "paymentMethodCode": null,
+              "fixedPartialPercentagePayment": 0,
+              "fixedMaximumAmount": {
+                "amount": 0
+              },
+              "associatedAccounts": [],
+              "unpaidDebtPaymentParameters": {
+                "isDirectDebitAccepted": false,
+                "validityPeriod": null,
+                "paymentMethodCode": null,
+                "fixedPartialPercentagePayment": 0,
+                "fixedMaximumAmount": null,
+                "associatedAccounts": []
+              }
+            }
+          }
+        }
+      },
+      "statusCode": 201,
+      "response": {
+        "cardContractId": "00330142GR0000013980",
+        "cards": [
+          {
+            "product": {
+              "productId": "66",
+              "subproduct": {
+                "subproductId": "443"
+              }
+            },
+            "cardId": "457300-1907-b16a5a28-f631-4c07-9366-2f0d549367c0",
+            "cardIdentification": {
+              "displayNumber": "1907"
+            },
+            "supportedArtefacts": [
+              {
+                "typeCode": "physical_plastic"
+              }
+            ],
+            "deliveryOptions": {
+              "contactPoint": {
+                "useTypes": [
+                  {
+                    "code": "CR1"
+                  }
+                ]
+              }
+            },
+            "embossing": {
+              "cardArtCode": "861",
+              "printedName": "JULIA VISA AUT GLUON"
+            },
+            "expiration": {
+              "month": "11",
+              "year": "2030"
+            }
+          },
+          {
+            "product": {
+              "productId": "66",
+              "subproduct": {
+                "subproductId": "443"
+              }
+            },
+            "cardId": "457300-3561-be5d174d-ba5a-43be-9b8d-ffd42af5771f",
+            "cardIdentification": {
+              "displayNumber": "3561"
+            },
+            "supportedArtefacts": [
+              {
+                "typeCode": "online_card"
+              }
+            ],
+            "deliveryOptions": {
+              "contactPoint": {
+                "useTypes": [
+                  {
+                    "code": null
+                  }
+                ]
+              }
+            },
+            "embossing": {
+              "cardArtCode": "861",
+              "printedName": "JULIA VISA AUT GLUON"
+            },
+            "expiration": {
+              "month": "11",
+              "year": "2030"
+            }
+          }
+        ],
+        "settlementConditions": {
+          "deliveryOptions": {
+            "contactPoint": {
+              "useTypes": [
+                {
+                  "code": "FT1"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "timestamp": "2025-05-02T18:25:34.943Z",
+      "uri": "https://cadastral.api.uat.np.santander-br.sa-east-1.santanderglobalcards.corp",
+      "path": "/v1/card_onboardings/5277230388520",
+      "reqType": "PATCH",
+      "headers": false,
+      "token": false,
+      "body": {
+        "statusCode": "confirm"
+      },
+      "statusCode": 201
+    },
+    {
+      "timestamp": "2025-05-02T18:25:39.897Z",
+      "uri": "https://cadastral-ciclo-vida-dispositivo-backend.test.uat.np.santander-br.sa-east-1.santanderglobalcards.corp",
+      "path": "life-cycle/v4/devices/details",
+      "reqType": "GET",
+      "headers": {
+        "Content-Type": "application/json",
+        "deviceId": "457300-1907-b16a5a28-f631-4c07-9366-2f0d549367c0"
+      },
+      "token": false,
+      "body": "",
+      "statusCode": 200,
+      "response": {
+        "status": {
+          "messageId": "200",
+          "message": "OK",
+          "details": []
+        },
+        "result": {
+          "previousDeviceId": "",
+          "previousExpirationDate": "",
+          "operationalBlockIndicator": "N",
+          "groupingId": "1",
+          "deviceHolderId": "1",
+          "embossingName": "JULIA VISA AUT GLUON",
+          "deviceSituation": "1",
+          "stampingTypeCode": "861",
+          "operationalFunction": "CRE",
+          "chipTechnologyProfileCode": "8",
+          "productCode": "66",
+          "subProductCode": "443",
+          "entityCode": "33",
+          "contractId": "00330142OD0000004720",
+          "deviceId": "457300-1907-b16a5a28-f631-4c07-9366-2f0d549367c0",
+          "embossingReason": "01",
+          "cancellingDate": "",
+          "activationChannel": "",
+          "deviceTypeCode": "PH",
+          "expirationDate": "203011",
+          "printCcDeviceIndicator": "false",
+          "activationDate": "",
+          "insuranceIndicator": "N",
+          "cardReferID": "20250502182523608995",
+          "addressUsageTypeCode": "CR1",
+          "subContractId": "00330142GR0000013980",
+          "creationDate": "2025-05-02T18:25:23.411",
+          "lastChannelUserUpdate": "web",
+          "lastUpdate": "2025-05-02T18:25:33.477",
+          "cancellingReason": "",
+          "lastDeviceIndicator": "true",
+          "renovationIndicator": "Y",
+          "last4DigitsCard": "1907",
+          "saleChannel": "C002",
+          "salePoint": "",
+          "fourthLinePrint": "",
+          "reissueReasonCode": 0,
+          "brandCode": 2,
+          "socialSecurityRecipientId": "",
+          "originPersonCode": "17041065",
+          "deviceHolderType": "OW",
+          "cancellingReasonDescription": null,
+          "brandCodeDescription": "VISA",
+          "deviceSituationDescription": "PENDENTE DE EMBOSSING",
+          "deviceTypeCodeDescription": "CARTÃO FÍSICO",
+          "embossingReasonDescription": "EMISSÃO",
+          "stampingTypeCodeDescription": "STD ELITE PLT VS VAN GOGH CHIP",
+          "subProductCodeDescription": "SANTANDER PLATINUM VISA",
+          "insuranceIndicatorDescription": "Não",
+          "chipTechnologyProfileCodeDescription": "DUAL INTERF VS ON CONTACTLESS",
+          "deviceHolderTypeDescription": "Titular",
+          "reissueReasonCodeDescription": null,
+          "operationalBlockIndicatorDescription": "NENHUM",
+          "operationalFunctionDescription": "CRÉDITO",
+          "productCodeDescription": "CARTAO DE CREDITO",
+          "renovationIndicatorDescription": "Sim",
+          "contracts": {
+            "personId": "618705",
+            "contractId": "00330142OD0000004720",
+            "hiringDate": "2025-05-02T18:25:22.459",
+            "cancellingDate": "",
+            "cancellingReason": "",
+            "operationalBlockIndicator": "N",
+            "contractManagerWorkshop": "142",
+            "economicConditionCode": 1,
+            "contractCondition": "1",
+            "contractConditionDescription": "NORMAL",
+            "contractConditionLastUpdate": "2025-05-02T18:25:22.459",
+            "lastChannelUserUpdate": "web",
+            "lastUpdate": "2025-05-02T18:25:22.459",
+            "expectedCancellationDate": null,
+            "originPersonCode": "17041065",
+            "cancellingReasonDescription": null,
+            "operationalBlockIndicatorDescription": "NENHUM",
+            "blockContracts": [],
+            "economicConditionDescription": "Público Geral"
+          },
+          "blocks": [],
+          "accounts": [],
+          "subContract": {
+            "subContractId": "00330142GR0000013980",
+            "subProductCode": 443,
+            "invoiceGroupId": 11201,
+            "economicConditionCode": null,
+            "cancellingDate": null,
+            "contractId": "00330142OD0000004720",
+            "groupingId": 1,
+            "insertionDate": "2025-05-02T18:25:23.359",
+            "cancellingReason": null,
+            "subContractManagerWorkshop": 142,
+            "contractMigratedIndicator": false,
+            "lastUpdate": "2025-05-02T18:25:23.359",
+            "operationalBlockIndicator": "D",
+            "productOperabilityCode": "DD",
+            "subContractCondition": 1,
+            "subcontractConditionDescription": "NORMAL",
+            "brandCode": 2,
+            "productCode": 66,
+            "lastChannelUserUpdate": "web",
+            "ownerGroupingId": 1,
+            "operationalBlockIndicatorDescription": "DEBITO",
+            "productOperabilityCodeDescription": "Débito Adormecido",
+            "cancellingReasonDescription": null,
+            "subProductCodeDescription": "SANTANDER PLATINUM VISA",
+            "productCodeDescription": "CARTAO DE CREDITO",
+            "economicConditionDescription": null,
+            "blockSubcontract": []
+          }
+        }
+      }
+    },
+    {
+      "timestamp": "2025-05-02T18:25:42.026Z",
+      "uri": "https://cadastral-embossing-management-backend.test.uat.np.santander-br.sa-east-1.santanderglobalcards.corp",
+      "path": "/cards-embossing/v2/embossing-requests",
+      "reqType": "GET",
+      "headers": false,
+      "token": false,
+      "body": {
+        "query": {
+          "device-id": "457300-1907-b16a5a28-f631-4c07-9366-2f0d549367c0"
+        }
+      },
+      "statusCode": 200,
+      "response": {
+        "status": {
+          "messageId": "embossing-success-message",
+          "type": "info",
+          "message": "Operação realizada com sucesso.",
+          "details": []
+        },
+        "result": [
+          {
+            "deviceId": "457300-1907-b16a5a28-f631-4c07-9366-2f0d549367c0",
+            "requestOrder": 659576,
+            "statusEmbossingRequest": "01",
+            "embossingReason": "01",
+            "typeEmbossingRequest": "00",
+            "statusEmbossingFile": "00",
+            "errorType": null,
+            "statusErrorEmbossing": null,
+            "embossingCompanyCode": "2",
+            "processEmbossingTs": "2025-05-02T18:25:35.152",
+            "statusOrchestrator": "01",
+            "returnCodeOrchestrator": null,
+            "statusClientData": "01",
+            "returnCodeClientData": "",
+            "statusAddressData": "01",
+            "returnCodeAddressData": "",
+            "statusFormatName": "01",
+            "returnCodeFormatName": "",
+            "statusAdditionalData": "01",
+            "returnCodeAdditionalData": "",
+            "statusTranche": "01",
+            "returnCodeTranche": "",
+            "statusArAllocation": "01",
+            "returnCodeArAllocation": null,
+            "nameEmbossingFile": null,
+            "formatValidCode": null,
+            "formatValidDescription": null,
+            "formatValidTs": "0001-01-01T00:00:00.000",
+            "formatProcessedCode": null,
+            "formatProcessedTs": "0001-01-01T00:00:00.000",
+            "creationTs": "2025-05-02T18:25:35.161",
+            "cancelTs": "0001-01-01T00:00:00.000",
+            "lastUpdateTs": "2025-05-02T18:25:35.657",
+            "sessionDate": "2025-05-02",
+            "statusPhoneData": null,
+            "returnCodePhoneData": null,
+            "statusStratos": null,
+            "returnCodeStratos": null
+          }
+        ]
+      }
+    }
+  ]

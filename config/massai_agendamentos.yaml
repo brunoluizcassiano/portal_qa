@@ -7,3 +7,13 @@
   quantidade: 3
   horario: "16:32"
   dias_semana: ["Todos"]
+
+- fluxo_name: "extracao_jira_sprint"
+  horario: "12:32"
+  dias_semana: ["Segunda","Terça","Quarta","Quinta","Sexta"]
+  quantidade: 1
+
+- fluxo_name: "extracao_zephyr_diaria"
+  horario: "12:40"
+  dias_semana: ["Todos"]
+  quantidade: 1

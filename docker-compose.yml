@@ -22,3 +22,23 @@ services:
     depends_on:
       - massai-api
     restart: always
+
+  massai-extractor:
+    build:
+      context: .
+      dockerfile: src/extractor/runner/Dockerfile.run
+    container_name: massai-extractor
+    volumes:
+      - ./.streamlit:/app/.streamlit:ro
+      - ./config:/app/config:rw
+    environment:
+      - SECRETS_PATH=/app/.streamlit/secrets.toml
+      - TZ=America/Sao_Paulo
+      - SCHEDULE_FILE=config/massai_agendamentos.yaml
+      - SETTINGS_FILE=config/settings.yaml
+      - HIST_FILE=config/massai_historico_execucoes.yaml
+      - POLL_INTERVAL=60
+      - TOL_MIN=1
+    depends_on:
+      - massai-api
+    restart: always
