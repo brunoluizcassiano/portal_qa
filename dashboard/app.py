@@ -47,8 +47,8 @@ def salvar_massa_gerada(fluxo_name, dados):
 with st.sidebar:
     pagina_principal = option_menu(
         menu_title="Menu Principal\nMassAI",
-        options=["Home", "Geração de Massa", "Dashboards", "Administração de Sistema"],
-        icons=["house", "rocket", "bar-chart-line", "gear"],
+        options=["Home", "Geração de Massa", "Dashboards de Massa", "KPI's de Qualidade", "Administração de Sistema"],
+        icons=["house", "rocket", "bar-chart-line", "bar-chart-line", "gear"],
         menu_icon="cast",
         default_index=0,
     )
@@ -116,7 +116,22 @@ elif pagina_principal == "Geração de Massa":
     elif submenu == "Gestão de Massa":
         pagina_gestao_massa()
 
-elif pagina_principal == "Dashboards":
+elif pagina_principal == "Dashboards de Massa":
+    submenu = option_menu(
+        menu_title=None,
+        options=["Dashboard Histórico", "Status dos Agendamentos"],
+        icons=["clipboard-data", "clock-history"],
+        default_index=0,
+        orientation="horizontal",
+    )
+
+    if submenu == "Dashboard Histórico":
+        pagina_dashboard_historico()
+
+    elif submenu == "Status dos Agendamentos":
+        pagina_dashboard_status()
+
+elif pagina_principal == "KPI's de Qualidade":
     submenu = option_menu(
         menu_title=None,
         options=["Dashboard Histórico", "Status dos Agendamentos"],
