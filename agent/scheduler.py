@@ -4,6 +4,7 @@ import time
 import datetime
 import requests
 import yaml
+import time, requests
 
 # ====== Constantes originais (mantidas) ======
 CONFIG_AGENDAMENTOS_FILE = 'config/massai_agendamentos.yaml'
@@ -134,6 +135,22 @@ def _post_agendamento(base_url: str, endpoint: str, fluxo: str, quantidade: int)
     return resp
 
 
+def _api_alive(url: str) -> bool:
+    try:
+        r = requests.get(url.rstrip("/") + "/health", timeout=5)
+        return r.status_code == 200
+    except Exception:
+        return False
+
+def _aguarda_api(api_base: str, tentativas: int = 60, intervalo: int = 2):
+    print(f"[INIT] Aguardando API em {api_base}…", flush=True)
+    for i in range(tentativas):
+        if _api_alive(api_base):
+            print("[INIT] API respondendo. Iniciando scheduler.", flush=True)
+            return
+        time.sleep(intervalo)
+    print("[WARN] API não respondeu no tempo esperado, seguirei mesmo assim.", flush=True)
+
 # ====== Worker principal (mantido de nome) ======
 def scheduler_worker():
     print("✅ Scheduler iniciado…", flush=True)
@@ -141,6 +158,8 @@ def scheduler_worker():
     print(f"   → Agendamentos: {CONFIG_AGENDAMENTOS_FILE}", flush=True)
     print(f"   → Histórico: {CONFIG_HISTORICO_FILE}", flush=True)
     print(f"   → Poll: {POLL_INTERVAL}s | Tolerância: ±{TOLERANCIA_MINUTOS} min", flush=True)
+
+    _aguarda_api(API_URL, tentativas=60, intervalo=2)
 
     while True:
         try:

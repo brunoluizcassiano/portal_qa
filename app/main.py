@@ -8,6 +8,10 @@ import yaml
 import requests
 import os
 import tomllib  # Python 3.11+
+import sys, pathlib
+# garante que /app (raiz do projeto no container) está no PYTHONPATH
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[1]))
+
 from pathlib import Path
 
 # ==== Lê configurações do settings.yaml (Teams webhook etc.) ====
@@ -31,7 +35,10 @@ DATA_DIR = Path("config/data")
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 # ==== Imports das funções de extração (ficam nos módulos dos clients) ====
-from extractor.jira.jira_client import run_extracao_jira_sprint
+from extractor.jira.jira_client import (
+    run_extracao_jira_sprint,
+    run_extracao_jira_bases,
+)
 from extractor.zephyr.zephyr_client import run_extracao_zephyr_diaria
 
 # Inicializa a aplicação FastAPI
@@ -55,18 +62,35 @@ class FluxoRequest(BaseModel):
 def read_root():
     return {"MassAI": "Running"}
 
+@app.get("/health")
+def health():
+    return {"ok": True}
+
 # ====== Endpoint genérico (compatível com scheduler) ======
 @app.post("/run_fluxo/")
 def run_fluxo(request: FluxoRequest):
     name = (request.fluxo_name or "").lower().strip()
 
-    # Despacha para Jira/Zephyr quando identificado pelo nome
-    if "jira" in name:
-        return run_extracao_jira_sprint(jira_cfg=JIRA, app_cfg=APP, quantidade=request.quantidade, data_dir=DATA_DIR)
-    if "zephyr" in name:
-        return run_extracao_zephyr_diaria(zephyr_cfg=ZEPHYR, app_cfg=APP, quantidade=request.quantidade, data_dir=DATA_DIR)
+    # 1) checa primeiro o fluxo específico "jira_bases"
+    if "jira_bases" in name:
+        return run_extracao_jira_bases(
+            jira_cfg=JIRA, app_cfg=APP,
+            quantidade=request.quantidade, data_dir=DATA_DIR
+        )
 
-    # Caso contrário, mantém o comportamento anterior (FluxoCartaoAgent)
+    # 2) depois os fluxos "jira" e "zephyr" genéricos
+    if "jira" in name:
+        return run_extracao_jira_sprint(
+            jira_cfg=JIRA, app_cfg=APP,
+            quantidade=request.quantidade, data_dir=DATA_DIR
+        )
+    if "zephyr" in name:
+        return run_extracao_zephyr_diaria(
+            zephyr_cfg=ZEPHYR, app_cfg=APP,
+            quantidade=request.quantidade, data_dir=DATA_DIR
+        )
+
+    # 3) fallback: mantém o comportamento anterior (FluxoCartaoAgent)
     try:
         contexto_list = agent.run_fluxo(request.fluxo_name, request.quantidade)
         return {"status": "Sucesso", "contexto": contexto_list}
@@ -74,10 +98,15 @@ def run_fluxo(request: FluxoRequest):
         send_teams_alert([str(e)])
         return {"status": "Falha", "erros": [str(e)]}
 
+
 # ====== Endpoints específicos (opcionais) ======
 @app.post("/run_jira/")
 def run_jira(request: FluxoRequest):
     return run_extracao_jira_sprint(jira_cfg=JIRA, app_cfg=APP, quantidade=request.quantidade, data_dir=DATA_DIR)
+
+@app.post("/run_jira_bases/")
+def run_jira_bases(request: FluxoRequest):
+    return run_extracao_jira_bases(jira_cfg=JIRA, app_cfg=APP, quantidade=request.quantidade, data_dir=DATA_DIR)
 
 @app.post("/run_zephyr/")
 def run_zephyr(request: FluxoRequest):

@@ -10,6 +10,9 @@ services:
       - "8000:8000"
     volumes:
       - ./config:/app/config
+      - ./.streamlit:/app/.streamlit:ro    # monta secrets.toml na API
+    environment:
+      - SECRETS_PATH=/app/.streamlit/secrets.toml
     restart: always
 
   massai-dashboard:

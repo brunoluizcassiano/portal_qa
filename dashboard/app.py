@@ -9,6 +9,13 @@ from streamlit_option_menu import option_menu
 from visualizar_fluxos import pagina_visualizar_fluxos
 from visualizar_fluxo_bonito import pagina_fluxo_bonito
 from dashboard_historico import pagina_dashboard_historico
+from coeqa.dashboard_home import pagina_dashboard_home
+from coeqa.dashboard_kpi import pagina_dashboard_kpi
+from coeqa.dashboard_score import pagina_dashboard_score
+from coeqa.dashboard_covaregeAndRun import pagina_dashboard_coverage_and_run
+from coeqa.dashboard_analytical import pagina_dashboard_analytical
+from coeqa.dashboard_bugs import pagina_dashboard_bugs
+from coeqa.dashboard_waves import pagina_dashboard_waves
 from admin_fluxos import pagina_admin_fluxos
 from admin_agendamentos import pagina_admin_agendamentos
 from dashboard_status_agendamentos import pagina_dashboard_status
@@ -44,13 +51,21 @@ def salvar_massa_gerada(fluxo_name, dados):
         yaml.dump(massas, f, allow_unicode=True)
 
 # === SIDEBAR ===
+from streamlit_option_menu import option_menu
+import streamlit as st
+
 with st.sidebar:
     pagina_principal = option_menu(
-        menu_title="Menu Principal\nMassAI",
+        menu_title="CoE - PLARD",
         options=["Home", "Geração de Massa", "Dashboards de Massa", "KPI's de Qualidade", "Administração de Sistema"],
         icons=["house", "rocket", "bar-chart-line", "bar-chart-line", "gear"],
         menu_icon="cast",
         default_index=0,
+        # --- Adicione o parâmetro 'styles' ---
+        styles={
+            "menu-title": {"font-size": "16px"} # Altere o tamanho da fonte aqui
+        }
+        # --------------------------------------
     )
 
 # === PÁGINAS ===
@@ -134,17 +149,54 @@ elif pagina_principal == "Dashboards de Massa":
 elif pagina_principal == "KPI's de Qualidade":
     submenu = option_menu(
         menu_title=None,
-        options=["Dashboard Histórico", "Status dos Agendamentos"],
-        icons=["clipboard-data", "clock-history"],
+        options=["Home", "KPI's", "Score", "Coverage and Run", "Analytical", "Bugs", "Waves"],
+        icons=["clipboard-data", "clock-history", "graph-up", "check2-circle", "bar-chart", "bug", "rocket"],
         default_index=0,
         orientation="horizontal",
+        # --- Estilos Customizados ---
+        styles={
+            # Estilo para cada item do menu
+            "nav-link": {
+                "font-size": "12px",  # Reduz o tamanho da fonte (ajuste conforme a necessidade)
+                "padding": "5px 10px", # Reduz o padding para diminuir o espaço
+                "white-space": "nowrap", # Garante que o texto fique em uma única linha (impede quebras)
+                "overflow": "hidden", # Esconde qualquer texto que transborde
+                "text-overflow": "ellipsis" # Adiciona '...' se o texto for cortado
+            },
+            # Estilo para o item selecionado
+            "nav-link-selected": {
+                "font-size": "12px",
+                "padding": "5px 10px",
+                # Você pode adicionar um 'background-color' ou 'color' diferente para o item selecionado aqui, se quiser
+            },
+            # Estilo para o contêiner geral do menu (opcional, mas útil)
+            "container": {
+                "width": "100%", # Ocupa toda a largura disponível
+            }
+        }
+        # ----------------------------
     )
 
-    if submenu == "Dashboard Histórico":
-        pagina_dashboard_historico()
+    if submenu == "Home":
+        pagina_dashboard_home()
 
-    elif submenu == "Status dos Agendamentos":
-        pagina_dashboard_status()
+    elif submenu == "KPI's":
+        pagina_dashboard_kpi()
+
+    elif submenu == "Score":
+        pagina_dashboard_score()
+    
+    elif submenu == "Coverage and Run":
+        pagina_dashboard_coverage_and_run()
+
+    elif submenu == "Analytical":
+        pagina_dashboard_analytical()
+    
+    elif submenu == "Bugs":
+        pagina_dashboard_bugs()
+        
+    elif submenu == "Waves":
+        pagina_dashboard_waves()
 
 elif pagina_principal == "Administração de Sistema":
     submenu = option_menu(
