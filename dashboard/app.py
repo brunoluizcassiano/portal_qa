@@ -16,6 +16,9 @@ from coeqa.dashboard_covaregeAndRun import pagina_dashboard_coverage_and_run
 from coeqa.dashboard_analytical import pagina_dashboard_analytical
 from coeqa.dashboard_bugs import pagina_dashboard_bugs
 from coeqa.dashboard_waves import pagina_dashboard_waves
+from coeqa.dashboard_regression import pagina_dashboard_regression
+from coeqa.dashboard_automation import pagina_dashboard_automation
+from coeqa.dashboard_roi import pagina_dashboard_roi
 from admin_fluxos import pagina_admin_fluxos
 from admin_agendamentos import pagina_admin_agendamentos
 from dashboard_status_agendamentos import pagina_dashboard_status
@@ -149,8 +152,8 @@ elif pagina_principal == "Dashboards de Massa":
 elif pagina_principal == "KPI's de Qualidade":
     submenu = option_menu(
         menu_title=None,
-        options=["Home", "KPI's", "Score", "Coverage and Run", "Analytical", "Bugs", "Waves"],
-        icons=["clipboard-data", "clock-history", "graph-up", "check2-circle", "bar-chart", "bug", "rocket"],
+        options=["Home", "KPI's", "Score", "Coverage and Run", "Analytical", "Bugs", "Waves", "Regressivo", "Automation", "ROI"],
+        icons=["clipboard-data", "clock-history", "graph-up", "check2-circle", "bar-chart", "bug", "rocket", "arrow-clockwise", "robot", "currency-dollar"],
         default_index=0,
         orientation="horizontal",
         # --- Estilos Customizados ---
@@ -197,6 +200,15 @@ elif pagina_principal == "KPI's de Qualidade":
         
     elif submenu == "Waves":
         pagina_dashboard_waves()
+
+    elif submenu == "Regressivo":
+        pagina_dashboard_regression()
+    
+    elif submenu == "Automation":
+        pagina_dashboard_automation()
+
+    elif submenu == "ROI":
+        pagina_dashboard_roi()
 
 elif pagina_principal == "Administração de Sistema":
     submenu = option_menu(

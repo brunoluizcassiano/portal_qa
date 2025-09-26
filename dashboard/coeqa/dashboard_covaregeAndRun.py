@@ -108,26 +108,42 @@ def pagina_dashboard_coverage_and_run():
             df_zc["created_dt"] = pd.to_datetime(df_zc["created"], errors="coerce")
             df_zc["created_date"] = df_zc["created_dt"].dt.date
 
-    # ----- Filtros: período (calendário + slider sincronizados) e Domain
+    # ----- Filtros: intervalo (calendário + slider) e Domain
     all_exec_dates = df_ze["executed_date"].dropna().tolist() if "executed_date" in df_ze.columns else []
     if all_exec_dates:
         min_d, max_d = min(all_exec_dates), max(all_exec_dates)
     else:
         min_d, max_d = date.today() - timedelta(days=180), date.today()
 
-    # Fonte única + estados dos widgets + controle de sync
-    if "periodo" not in st.session_state:
-        st.session_state["periodo"] = (min_d, max_d)
-    if "_sync_to_widgets" not in st.session_state:
-        st.session_state["_sync_to_widgets"] = True  # na 1ª execução, empurra periodo p/ widgets
+    # 1) Fonte única do intervalo
+    if "periodo_master" not in st.session_state:
+        st.session_state["periodo_master"] = (min_d, max_d)
 
-    # **ANTES** de criar os widgets, se precisamos sincronizar, faça-o
-    if st.session_state["_sync_to_widgets"]:
-        st.session_state["periodo_cal_widget"] = st.session_state["periodo"]
-        st.session_state["periodo_slider_widget"] = st.session_state["periodo"]
-        st.session_state["_sync_to_widgets"] = False
+    # 2) Garantia: os dois widget-keys existem e SEMPRE são tuplas (início, fim)
+    def _ensure_range_key(key: str, fallback: tuple[date, date]):
+        v = st.session_state.get(key, None)
+        if isinstance(v, (list, tuple)) and len(v) == 2:
+            st.session_state[key] = (v[0], v[1])
+        elif isinstance(v, date):
+            st.session_state[key] = (v, v)
+        else:
+            st.session_state[key] = fallback
 
-    # Render dos filtros
+    _ensure_range_key("intervalo_data",   st.session_state["periodo_master"])
+    _ensure_range_key("intervalo_slider", st.session_state["periodo_master"])
+
+    # 3) Callbacks de sincronização (bidirecional), SEM st.rerun()
+    def _on_calendar_change():
+        # calendário venceu → atualiza master e o slider
+        st.session_state["periodo_master"] = st.session_state["intervalo_data"]
+        st.session_state["intervalo_slider"] = st.session_state["intervalo_data"]
+
+    def _on_slider_change():
+        # slider venceu → atualiza master e o calendário
+        st.session_state["periodo_master"] = st.session_state["intervalo_slider"]
+        st.session_state["intervalo_data"] = st.session_state["intervalo_slider"]
+
+    # 4) Linha de filtros (Domain + intervalo)
     c0, c1, c2 = st.columns([0.50, 0.30, 0.20])
     with c0:
         if not df_proj.empty:
@@ -148,65 +164,30 @@ def pagina_dashboard_coverage_and_run():
     with c0:
         ca, cb = st.columns(2)
         with ca:
-            cal_val = st.date_input(
+            st.date_input(
                 "Date (calendário)",
-                value=st.session_state.get("periodo_cal_widget", st.session_state["periodo"]),
+                key="intervalo_data",
                 min_value=min_d,
                 max_value=max_d,
                 format="DD/MM/YYYY",
-                key="periodo_cal_widget",
+                on_change=_on_calendar_change,
             )
         with cb:
-            slider_val = st.slider(
+            st.slider(
                 "Date (slider)",
+                key="intervalo_slider",
                 min_value=min_d,
                 max_value=max_d,
-                value=st.session_state.get("periodo_slider_widget", st.session_state["periodo"]),
                 format="DD/MM/YYYY",
-                key="periodo_slider_widget",
+                on_change=_on_slider_change,
             )
-
-        # Normaliza para tuplas (start, end)
-        def _as_tuple(v):
-            if isinstance(v, (list, tuple)) and len(v) == 2:
-                return (v[0], v[1])
-            return st.session_state["periodo"]
-
-        cal_tuple    = _as_tuple(cal_val)
-        slider_tuple = _as_tuple(slider_val)
-        periodo      = st.session_state["periodo"]
-
-        # Detecta quem mudou em relação ao período vigente
-        cal_changed    = cal_tuple != periodo and cal_tuple == st.session_state["periodo_cal_widget"]
-        slider_changed = slider_tuple != periodo and slider_tuple == st.session_state["periodo_slider_widget"]
-
-        # Decide e sincroniza na PRÓXIMA execução (seta flag + rerun)
-        if cal_changed and not slider_changed:
-            st.session_state["periodo"] = cal_tuple
-            st.session_state["_sync_to_widgets"] = True
-            st.rerun()
-        elif slider_changed and not cal_changed:
-            st.session_state["periodo"] = slider_tuple
-            st.session_state["_sync_to_widgets"] = True
-            st.rerun()
-        elif slider_changed and cal_changed:
-            # heurística simples: prioriza o último que o usuário tocou (o que mais difere)
-            def _span(v): 
-                try: return (v[1] - v[0]).days
-                except: return 0
-            choose_slider = abs(_span(slider_tuple) - _span(periodo)) >= abs(_span(cal_tuple) - _span(periodo))
-            st.session_state["periodo"] = slider_tuple if choose_slider else cal_tuple
-            st.session_state["_sync_to_widgets"] = True
-            st.rerun()
-
     with c1:
         st.caption("")
-
     with c2:
         st.caption("")
 
-    # Período final aplicado
-    d_start, d_end = st.session_state["periodo"]
+    # 5) Usa a fonte única como período final aplicado
+    d_start, d_end = st.session_state["periodo_master"]
 
     # ----- aplica filtros
     def f_proj(df, col="projectKey"):
