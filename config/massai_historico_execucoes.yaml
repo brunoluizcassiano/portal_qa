@@ -1,49 +1,14 @@
-- fluxo_name: extracao_jira_sprint
-  horario: '14:11'
-  data: 25/09/2025
-  status: Falha
-  mensagem: '500 Server Error: Internal Server Error for url: http://massai-api:8000/run_jira/'
-  endpoint: /run_jira/
-  api_url: http://massai-api:8000
-- fluxo_name: extracao_jira_sprint
-  horario: '14:35'
-  data: 25/09/2025
-  status: Falha
-  mensagem: '500 Server Error: Internal Server Error for url: http://massai-api:8000/run_jira/'
-  endpoint: /run_jira/
+- fluxo_name: extracao_zephyr_diaria
+  horario: '14:34'
+  data: 26/09/2025
+  status: Sucesso
+  mensagem: '{"ok":true,"source":"zephyr","testcases":2,"executions":0,"saved":["config/data/zephyr_testcases_20250926_173343.csv","config/data/zephyr_executions_20250926_173343.csv"],"latest":["config/data/zephyr_testcases_latest.csv","config/data/zephyr_executions_latest.csv"]}'
+  endpoint: /run_zephyr/
   api_url: http://massai-api:8000
 - fluxo_name: extracao_zephyr_diaria
-  horario: '14:40'
-  data: 25/09/2025
+  horario: '14:34'
+  data: 02/10/2025
   status: Falha
   mensagem: '500 Server Error: Internal Server Error for url: http://massai-api:8000/run_zephyr/'
   endpoint: /run_zephyr/
-  api_url: http://massai-api:8000
-- fluxo_name: extracao_jira_sprint
-  horario: '15:58'
-  data: 25/09/2025
-  status: Sucesso
-  mensagem: '{"ok":true,"source":"jira","count":0,"saved":"config/data/jira_issues_20250925_185759.csv","latest":"config/data/jira_issues_latest.csv"}'
-  endpoint: /run_jira/
-  api_url: http://massai-api:8000
-- fluxo_name: extracao_zephyr_diaria
-  horario: '16:00'
-  data: 25/09/2025
-  status: Falha
-  mensagem: '500 Server Error: Internal Server Error for url: http://massai-api:8000/run_zephyr/'
-  endpoint: /run_zephyr/
-  api_url: http://massai-api:8000
-- fluxo_name: extracao_zephyr_diaria
-  horario: '16:00'
-  data: 25/09/2025
-  status: Sucesso
-  mensagem: '{"ok":true,"source":"zephyr","testcases":2,"executions":0,"saved":["config/data/zephyr_testcases_20250925_190127.csv","config/data/zephyr_executions_20250925_190127.csv"],"latest":["config/data/zephyr_testcases_latest.csv","config/data/zephyr_executions_latest.csv"]}'
-  endpoint: /run_zephyr/
-  api_url: http://massai-api:8000
-- fluxo_name: Fluxo Cartão
-  horario: '16:32'
-  data: 25/09/2025
-  status: Sucesso
-  mensagem: '{"status":"Sucesso","contexto":[{},{},{}]}'
-  endpoint: /run_fluxo/
   api_url: http://massai-api:8000

@@ -15,7 +15,7 @@
   servico: "jira"
 
 - fluxo_name: "extracao_zephyr_diaria"
-  horario: "16:00"
+  horario: "14:34"
   dias_semana: ["Todos"]
   quantidade: 1
   servico: "zephyr"

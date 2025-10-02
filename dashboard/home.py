@@ -1,49 +1,31 @@
 import streamlit as st
-
 def pagina_home():
-    st.title("🏡 Bem-vindo ao MassAI - Geração Inteligente de Massas de Dados")
-
+    st.set_page_config(page_title="CIQ - PLARD", layout="wide")
+    st.title("🏡 Bem-vindo a Central de inovação em Qualidade de Software - PLARD")
     st.markdown("""
     <p style='font-size:18px;'>
-        O <b>MassAI</b> é uma plataforma inteligente para <b>gerar, gerenciar e monitorar</b> massas de dados para testes, desenvolvimento e automação.
-        <br><br>
-        Tudo foi pensado para ser rápido, flexível e controlado de forma fácil, visual e segura.
+        A <b>Central de inovação em Qualidade de Software</b> é uma plataforma inteligente para <b>gerar, gerenciar e monitorar</b> massas de dados para testes, desenvolvimento e automação.
+        <br>
+        A plataforma disponibiliza *KPIs (Indicadores-chave de Desempenho) de Qualidade* essenciais para sua tribo ou equipe. Esses KPIs fornecem uma visão clara e objetiva sobre a qualidade dos processos de software.
+        <br>
     </p>
     """, unsafe_allow_html=True)
-
     st.divider()
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.header("⚙️ Geração de Massa")
-        st.markdown("""
+    st.subheader("⚙️ Geração de Massa")
+    
+    st.markdown("""
         - Escolha fluxos de dados já configurados.
         - Gere rapidamente massas para testes.
         - Integre com APIs, Mensagerias (Kafka) e mais.
         """)
-
-    with col2:
-        st.header("📊 Dashboards")
-        st.markdown("""
-        - Acompanhe o histórico de execuções.
-        - Veja status de agendamentos em tempo real.
-        - Analise sucesso e falhas automaticamente.
-        """)
-
     st.divider()
-
-    st.subheader("🚀 Como Funciona?")
-
+    st.subheader("📊 Dashboards")
     st.markdown("""
-    1. **Configure seus fluxos**: Crie sequências de chamadas (APIs, Kafka, etc.).
-    2. **Gere massas sob demanda**: Execute fluxos sempre que quiser.
-    3. **Agende execuções automáticas**: Defina dias e horários para execuções recorrentes.
-    4. **Monitore e gerencie**: Veja resultados, taxas de sucesso e histórico.
-
-    Tudo isso sem precisar alterar código manualmente! 💻✨
+    - **Identificação de gargalos e oportunidades de melhoria** no ciclo de desenvolvimento
+    - **Acompanhamento contínuo do progresso e da evolução** dos projetos
+    - **Tomada de decisão mais assertiva**, baseada em dados reais e confiáveis
+    - **Promoção da colaboração entre times**, aumentando a transparência e a eficiência
+    Os KPIs são fundamentais para **integrar qualidade e performance** ao processo de desenvolvimento, facilitando a comunicação entre áreas e impulsionando a entrega de soluções cada vez melhores.
     """)
-
     st.divider()
-
-    st.success("Pronto para transformar sua gestão de dados de testes? Vá até o menu lateral e explore o MassAI 🚀")
+    st.success("Tudo foi pensado para ser rápido, flexível e controlado de forma fácil, visual e segura. Pronto para transformar sua gestão de dados de testes? 🚀🚀🚀")
