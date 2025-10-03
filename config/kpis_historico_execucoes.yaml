@@ -152,3 +152,17 @@
   mensagem: '{"ok":true,"source":"jira","projects_used":["KAN","PIQ"],"saved":{"projetos":{"latest":"config/database/jira_projetos_latest.csv","timestamped":"config/database/temp/jira_projetos_20251003_195110.csv","count":2},"func":{"latest":"config/database/jira_issues_func_latest.csv","timestamped":"config/database/temp/jira_issues_func_20251003_195110.csv","count":2},"epic":{"latest":"config/database/jira_issues_epic_latest.csv","timestamped":"config/database/temp/jira_issues_epic_20251003_195110.csv","count":1},"story":{"latest":"config/database/jira_issues_story_latest.csv","timestamped":"config/database/temp/jira_issues_story_20251003_195110.csv","count":2},"bug":{"latest":"config/database/jira_issues_bug_latest.csv","timestamped":"config/database/temp/jira_issues_bug_20251003_195110.csv","count":1},"subbug":{"latest":"config/database/jira_issues_subbug_latest.csv","timestamped":"config/database/temp/jira_issues_subbug_20251003_195110.csv","count":1}}}'
   endpoint: /run_jira_bases/
   api_url: http://massai-api:8000
+- fluxo_name: extracao_jira_bases
+  horario: '17:29:34'
+  data: 03/10/2025
+  status: Sucesso
+  mensagem: '{"ok":true,"source":"jira","projects_used":["KAN","PIQ"],"saved":{"projetos":{"latest":"config/database/jira_projetos_latest.csv","timestamped":"config/database/temp/jira_projetos_20251003_202927.csv","count":2},"func":{"latest":"config/database/jira_issues_func_latest.csv","timestamped":"config/database/temp/jira_issues_func_20251003_202927.csv","count":2},"epic":{"latest":"config/database/jira_issues_epic_latest.csv","timestamped":"config/database/temp/jira_issues_epic_20251003_202927.csv","count":1},"story":{"latest":"config/database/jira_issues_story_latest.csv","timestamped":"config/database/temp/jira_issues_story_20251003_202927.csv","count":2},"bug":{"latest":"config/database/jira_issues_bug_latest.csv","timestamped":"config/database/temp/jira_issues_bug_20251003_202927.csv","count":1},"subbug":{"latest":"config/database/jira_issues_subbug_latest.csv","timestamped":"config/database/temp/jira_issues_subbug_20251003_202927.csv","count":1}}}'
+  endpoint: /run_jira_bases/
+  api_url: http://massai-api:8000
+- fluxo_name: extracao_zephyr_diaria
+  horario: '17:29:49'
+  data: 03/10/2025
+  status: Sucesso
+  mensagem: '{"ok":true,"source":"zephyr","projects":["KAN"],"testcases":4,"executions":0,"testcycles":0,"statuses":14,"saved":["config/database/temp/zephyr_testcases_20251003_202948.csv","config/database/temp/zephyr_testexecutions_20251003_202948.csv","config/database/temp/zephyr_testcycles_20251003_202948.csv","config/database/temp/zephyr_statuses_20251003_202948.csv"],"latest":["config/database/zephyr_testcases_latest.csv","config/database/zephyr_testexecutions_latest.csv","config/database/zephyr_testcycles_latest.csv","config/database/zephyr_statuses_latest.csv"],"concurrency":{"max_workers":12,"page_size":100,"pause_every":200,"pause_secs":0.2},"filters_used":{"tc_createdAfter":"2025-01-01","tc_createdBefore":null,"exec_actualEndAfter":"2025-01-01T00:00:00Z","exec_actualEndBefore":null,"exec_testCase":null,"exec_includeStepLinks":false,"exec_onlyLastExecutions":false,"exec_versionId":null}}'
+  endpoint: /run_zephyr/
+  api_url: http://massai-api:8000
