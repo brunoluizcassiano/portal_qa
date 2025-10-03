@@ -1,0 +1,22 @@
+- fluxo_name: extracao_jira_bases
+  horario: '14:08'
+  dias_semana:
+  - Segunda
+  - Terça
+  - Quarta
+  - Quinta
+  - Sexta
+  quantidade: 1
+  servico: jira
+  id: 8b0d38e6-1613-4454-b2d6-222b81b20c80
+  enabled: true
+  created_at: '2025-10-03 12:52:38'
+- fluxo_name: extracao_zephyr_diaria
+  horario: '14:09'
+  dias_semana:
+  - Todos
+  quantidade: 1
+  servico: zephyr
+  id: 53409c6f-e11c-4f99-8f0b-c267793c2f6e
+  enabled: true
+  created_at: '2025-10-03 12:52:38'

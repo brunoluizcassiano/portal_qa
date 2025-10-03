@@ -24,6 +24,8 @@ ZEPHYR_CYCLE_FALLBACK = "zephyr_test_cycles_latest.csv"
 
 KPI_TARGETS = "kpi_targets.csv"
 
+KPI_LASTUPDATE = "lastUpdate.csv"  # criado pelo scheduler.py
+
 # --- Config visu (cores por meta) ---
 WARN_RATIO = 0.10  # banda "amarela" = 10% da meta
 
@@ -314,7 +316,9 @@ def pagina_dashboard_kpi():
     with c2:
         sel_year = st.selectbox("Ano", options=year_options, index=0)
     with c3:
-        st.caption(datetime.now().strftime("Atualizado: %d/%m/%Y %H:%M"))
+        p = _first_existing(KPI_LASTUPDATE)
+        dt = pd.read_csv(p).iloc[0,0]
+        st.caption(f"Atualizado: {dt}")
 
     c1, c2, c3 = st.columns([0.35, 0.3, 0.35])
     with c1:

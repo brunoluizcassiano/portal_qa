@@ -27,6 +27,15 @@ services:
     container_name: massai-dashboard
     ports:
       - "8501:8501"
+    environment:
+      - TZ=America/Sao_Paulo
+      # URL do backend para os botões "Executar agora"
+      - API_URL=http://massai-api:8000
+      # HISTÓRICO DA EXTRAÇÃO (KPI) que a UI escreve/mostra
+      - HIST_KPI_FILE=config/kpis_historico_execucoes.yaml
+    volumes:
+      # << ESSENCIAL >> monta a pasta do host no /app/config do container
+      - ./config:/app/config:rw
     depends_on:
       - massai-api
     restart: always
@@ -48,8 +57,10 @@ services:
       - SECRETS_PATH=/app/.streamlit/secrets.toml
       - TZ=America/Sao_Paulo
       - SCHEDULE_FILE=config/massai_agendamentos.yaml
+      - SCHEDULE_KPI_FILE=config/kpis_agendamentos.yaml
       - SETTINGS_FILE=config/settings.yaml
       - HIST_FILE=config/massai_historico_execucoes.yaml
+      - HIST_KPI_FILE=config/kpis_historico_execucoes.yaml
       - POLL_INTERVAL=60
       - TOL_MIN=1
     depends_on:

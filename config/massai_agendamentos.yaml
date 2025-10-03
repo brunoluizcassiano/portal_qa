@@ -1,21 +1,9 @@
 - fluxo_name: Fluxo Cartão
   quantidade: 2
-  horario: "16:30"
+  horario: "14:00"
   dias_semana: ["Segunda", "Quarta", "Sexta"]
 
 - fluxo_name: Fluxo Cartão
   quantidade: 3
-  horario: "16:32"
+  horario: "14:02"
   dias_semana: ["Todos"]
-
-- fluxo_name: "extracao_jira_sprint"
-  horario: "23:58"
-  dias_semana: ["Segunda","Terça","Quarta","Quinta","Sexta"]
-  quantidade: 1
-  servico: "jira"
-
-- fluxo_name: "extracao_zephyr_diaria"
-  horario: "23:59"
-  dias_semana: ["Todos"]
-  quantidade: 1
-  servico: "zephyr"

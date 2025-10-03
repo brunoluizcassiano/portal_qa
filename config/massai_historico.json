@@ -1,0 +1,16 @@
+[
+    {
+        "fluxo": "Consultar Todo Externo",
+        "data_hora": "03/10/2025 14:00:57",
+        "percentual_sucesso": "100.00%",
+        "zephyr_test_case_id": "TEST-7723",
+        "zephyr_status": "PASSOU"
+    },
+    {
+        "fluxo": "Consultar Todo Externo",
+        "data_hora": "03/10/2025 14:01:00",
+        "percentual_sucesso": "100.00%",
+        "zephyr_test_case_id": "TEST-8551",
+        "zephyr_status": "PASSOU"
+    }
+]

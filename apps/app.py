@@ -20,6 +20,7 @@ from portal.kpis.dashboard_automation import pagina_dashboard_automation
 from portal.kpis.dashboard_roi import pagina_dashboard_roi
 from portal.kpis.dashboard_admin import pagina_dashboardo_admin
 from portal.kpis.dashboard_agendamentos import pagina_dashboard_agendamentos
+from portal.kpis.dashboard_file import pagina_dashboard_file
 from portal.massa.admin_fluxos import pagina_admin_fluxos
 from portal.massa.admin_agendamentos import pagina_admin_agendamentos
 from portal.massa.dashboard_status_agendamentos import pagina_dashboard_status
@@ -219,8 +220,8 @@ elif pagina_principal == "KPI's de Qualidade":
     elif submenu == "Administração de Sistema":
         subsubmenu = option_menu(
             menu_title=None,
-            options=["Status dos Agendamentos", "Administração de Agendamentos"],
-            icons=["clock-history", "calendar-check"],
+            options=["Status dos Agendamentos", "Administração de Agendamentos", "Arquivo de extração"],
+            icons=["clock-history", "calendar-check", "file-earmark-text"],
             default_index=0,
             orientation="horizontal",
         )
@@ -229,3 +230,6 @@ elif pagina_principal == "KPI's de Qualidade":
             
         elif subsubmenu == "Administração de Agendamentos":
             pagina_dashboardo_admin()
+
+        elif subsubmenu == "Arquivo de extração":
+            pagina_dashboard_file()
