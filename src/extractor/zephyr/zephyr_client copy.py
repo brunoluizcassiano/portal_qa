@@ -11,19 +11,11 @@ import time, random
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 os.environ['PYTHONHTTPSVERIFY'] = '0'
-
-# ---- saídas padrão: tudo em config/database/temp ----
-BASE_DIR = Path("config/database")
-TEMP_DIR = BASE_DIR / "temp"
-BASE_DIR.mkdir(parents=True, exist_ok=True)
-TEMP_DIR.mkdir(parents=True, exist_ok=True)
-
 # ---------------------------
 # utils básicos
 # ---------------------------
 def _now_tag() -> str:
    return dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-
 def _to_iso(v: Union[str, dt.date, dt.datetime, None]) -> Optional[str]:
    if v is None:
        return None
@@ -36,7 +28,6 @@ def _to_iso(v: Union[str, dt.date, dt.datetime, None]) -> Optional[str]:
            return v.isoformat() + "Z"
        return v.astimezone(dt.timezone.utc).isoformat().replace("+00:00", "Z")
    return str(v)
-
 def _safe_get(d: Any, path: str, default=None):
    cur = d
    for part in path.split("."):
@@ -45,12 +36,10 @@ def _safe_get(d: Any, path: str, default=None):
        else:
            return default
    return cur
-
 def _join_list(v, sep=";"):
    if isinstance(v, list):
        return sep.join([str(x) for x in v if x is not None])
    return v
-
 def _norm_projects(app_cfg: Dict[str, Any]) -> List[str]:
    # aceita app.projects como lista ou CSV; senão usa default_project
    projs = app_cfg.get("projects")
@@ -62,7 +51,6 @@ def _norm_projects(app_cfg: Dict[str, Any]) -> List[str]:
        dp = app_cfg.get("default_project", "PROJ")
        projs = [dp]
    return projs
-
 class ZephyrClient:
    """
    Cliente Zephyr Scale (Cloud) usando requests + Retry.
@@ -74,7 +62,6 @@ class ZephyrClient:
        self.base_url = base_url.rstrip("/")
        self.timeout = timeout
        self._session = self._build_session(api_token)
-
    def _build_session(self, api_token: str) -> Session:
        s = requests.Session()
        s.trust_env = False
@@ -97,14 +84,12 @@ class ZephyrClient:
        })
        return s
    
-   @classmethod
    def from_env(cls, timeout: int = 30) -> "ZephyrClient":
-       base = os.getenv("ZEPHYR_BASE_URL")
-       token = os.getenv("ZEPHYR_API_TOKEN")
-       if not (base and token):
+        base = os.getenv("ZEPHYR_BASE_URL")
+        token = os.getenv("ZEPHYR_API_TOKEN")
+        if not (base and token):
             raise RuntimeError("Variáveis ZEPHYR_BASE_URL e ZEPHYR_API_TOKEN são obrigatórias.")
-       return cls(base_url=base, api_token=token, timeout=timeout)
-
+        return cls(base_url=base, api_token=token, timeout=timeout)
    # ---------------------------
    # paginação concorrente
    # ---------------------------
@@ -511,7 +496,7 @@ def run_extracao_zephyr_diaria(
    zephyr_cfg: Dict[str, Any],
    app_cfg: Dict[str, Any],
    quantidade: int = 1,
-   data_dir: Path | str = "config/database/temp",
+   data_dir: Path | str = "config/data",
 ) -> Dict[str, Any]:
    """
    Executa a extração no Zephyr Scale para **lista de projetos**:
@@ -615,20 +600,19 @@ def run_extracao_zephyr_diaria(
    df_cyc  = pd.DataFrame([_flatten_cycle(c) for c in all_cycles], columns=CYCLE_COLUMNS)
    df_stat = pd.DataFrame([_flatten_status(s) for s in statuses_filtered], columns=STATUS_COLUMNS)
    tag = _now_tag()
-   out_tc = TEMP_DIR / f"zephyr_testcases_{tag}.csv"
-   out_ex = TEMP_DIR / f"zephyr_testexecutions_{tag}.csv"
-   out_cy = TEMP_DIR / f"zephyr_testcycles_{tag}.csv"
-   out_st = TEMP_DIR / f"zephyr_statuses_{tag}.csv"
+   out_tc = data_dir / f"zephyr_testcases_{tag}.csv"
+   out_ex = data_dir / f"zephyr_testexecutions_{tag}.csv"
+   out_cy = data_dir / f"zephyr_testcycles_{tag}.csv"
+   out_st = data_dir / f"zephyr_statuses_{tag}.csv"
    df_tcs.to_csv(out_tc, index=False)
    df_exec.to_csv(out_ex, index=False)
    df_cyc.to_csv(out_cy, index=False)
    df_stat.to_csv(out_st, index=False)
    # versões "latest"
-   df_tcs.to_csv(TEMP_DIR / "zephyr_testcases_latest.csv", index=False)
-   df_exec.to_csv(TEMP_DIR / "zephyr_testexecutions_latest.csv", index=False)
-   df_cyc.to_csv(TEMP_DIR / "zephyr_testcycles_latest.csv", index=False)
-   df_stat.to_csv(TEMP_DIR / "zephyr_statuses_latest.csv", index=False)
-
+   df_tcs.to_csv(data_dir / "zephyr_testcases_latest.csv", index=False)
+   df_exec.to_csv(data_dir / "zephyr_testexecutions_latest.csv", index=False)
+   df_cyc.to_csv(data_dir / "zephyr_testcycles_latest.csv", index=False)
+   df_stat.to_csv(data_dir / "zephyr_statuses_latest.csv", index=False)
    return {
        "ok": True,
        "source": "zephyr",
@@ -639,10 +623,10 @@ def run_extracao_zephyr_diaria(
        "statuses": int(len(df_stat)),
        "saved": [str(out_tc), str(out_ex), str(out_cy), str(out_st)],
        "latest": [
-           str(TEMP_DIR / "zephyr_testcases_latest.csv"),
-           str(TEMP_DIR / "zephyr_testexecutions_latest.csv"),
-           str(TEMP_DIR / "zephyr_testcycles_latest.csv"),
-           str(TEMP_DIR / "zephyr_statuses_latest.csv"),
+           "config/data/zephyr_testcases_latest.csv",
+           "config/data/zephyr_testexecutions_latest.csv",
+           "config/data/zephyr_testcycles_latest.csv",
+           "config/data/zephyr_statuses_latest.csv",
        ],
        "concurrency": {
            "max_workers": MAX_WORKERS,

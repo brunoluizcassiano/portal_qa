@@ -10,38 +10,32 @@ import datetime as dt
 import os
 os.environ["PYTHONHTTPSVERIFY"] = "0"
 
-# ---- saídas padrão: tudo em config/database/temp ----
-BASE_DIR = Path("config/database")
-TEMP_DIR = BASE_DIR / "temp"
-BASE_DIR.mkdir(parents=True, exist_ok=True)
-TEMP_DIR.mkdir(parents=True, exist_ok=True)
-
-
 def _now_tag() -> str:
    return dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-
 def _clean_base_url(url: str) -> str:
    url = (url or "").strip().rstrip("/")
    if url.endswith("/jira"):
        url = url[:-5]
    return url
-
-def _load_project_keys_from_csv(_: Path) -> List[str]:
-    """Lê config/database/temp/jira_projetos_latest.csv e retorna as project keys."""
-    try:
-        p = TEMP_DIR / "jira_projetos_latest.csv"
-        if p.exists() and p.stat().st_size > 0:
-            df = pd.read_csv(p)
-            if "key" in df.columns:
-                keys = (
-                    df["key"].dropna().astype(str).str.strip().unique().tolist()
-                )
-                return [k for k in keys if k]
-    except Exception:
-        pass
-    return []
-
-
+def _load_project_keys_from_csv(data_dir: Path) -> List[str]:
+   """Lê config/data/jira_projetos_latest.csv e retorna as project keys."""
+   try:
+       p = data_dir / "jira_projetos_latest.csv"
+       if p.exists() and p.stat().st_size > 0:
+           df = pd.read_csv(p)
+           if "key" in df.columns:
+               keys = (
+                   df["key"]
+                   .dropna()
+                   .astype(str)
+                   .str.strip()
+                   .unique()
+                   .tolist()
+               )
+               return [k for k in keys if k]
+   except Exception:
+       pass
+   return []
 class JiraClient:
    """
    Cliente Jira usando requests + Retry.
@@ -54,17 +48,6 @@ class JiraClient:
        self.auth = (email, api_token)
        self.timeout = timeout
        self._session = self._build_session()
-
-   @classmethod
-   def from_env(cls, timeout: int = 30) -> "JiraClient":
-       base  = os.getenv("JIRA_BASE_URL")
-       email = os.getenv("JIRA_EMAIL")
-       token = os.getenv("JIRA_API_TOKEN")
-       if not (base and email and token):
-        raise RuntimeError("JIRA_BASE_URL, JIRA_EMAIL e JIRA_API_TOKEN são obrigatórias no ambiente.")
-       return cls(base_url=base, email=email, api_token=token, timeout=timeout)
-
-
    def _build_session(self) -> Session:
        s = requests.Session()
        s.trust_env = False
@@ -670,16 +653,18 @@ def run_extracao_jira_sprint(
    jira_cfg: Dict[str, Any],
    app_cfg: Dict[str, Any],
    quantidade: int = 1,
-   data_dir: Path | str = "config/database",
+   data_dir: Path | str = "config/data",
 ) -> Dict[str, Any]:
    data_dir = Path(data_dir)
    data_dir.mkdir(parents=True, exist_ok=True)
-   base  = jira_cfg.get("base_url")  or os.getenv("JIRA_BASE_URL")
-   email = jira_cfg.get("email")     or os.getenv("JIRA_EMAIL")
-   token = jira_cfg.get("api_token") or os.getenv("JIRA_API_TOKEN")
-   if not (base and email and token):
-       raise ValueError("[jira] configure base_url/email/api_token no secrets ou JIRA_BASE_URL/JIRA_EMAIL/JIRA_API_TOKEN no ambiente")
-   jc = JiraClient(base_url=base, email=email, api_token=token)
+   for k in ("base_url", "email", "api_token"):
+       if not jira_cfg.get(k):
+           raise ValueError(f"[jira] faltando chave '{k}' no secrets")
+   jc = JiraClient(
+       base_url=jira_cfg["base_url"],
+       email=jira_cfg["email"],
+       api_token=jira_cfg["api_token"],
+   )
    project = app_cfg.get("default_project", "PROJ")
    tipo_lista = ["Functionality", "Func", "Fun", "Funcionalidade", "Epic", "Story", "Bug", "Sub-Bug"]
    tipos_str = ",".join([f'"{t}"' for t in tipo_lista])
@@ -702,25 +687,21 @@ def run_extracao_jira_sprint(
        })
    df = pd.DataFrame(rows)
    tag = _now_tag()
-   out_csv = TEMP_DIR / f"jira_issues_{tag}.csv"             # histórico
-   latest_csv = TEMP_DIR / "jira_issues_latest.csv"          # latest
-
+   out_csv = data_dir / f"jira_issues_{tag}.csv"
    df.to_csv(out_csv, index=False)
-   df.to_csv(latest_csv, index=False)
-
+   df.to_csv(data_dir / "jira_issues_latest.csv", index=False)
    return {
-    "ok": True,
-    "source": "jira",
-    "count": len(df),
-    "saved": str(out_csv),
-    "latest": str(latest_csv),
+       "ok": True,
+       "source": "jira",
+       "count": len(df),
+       "saved": str(out_csv),
+       "latest": "config/data/jira_issues_latest.csv",
    }
-
 def run_extracao_jira_bases(
    jira_cfg: Dict[str, Any],
    app_cfg: Dict[str, Any],
    quantidade: int = 1,
-   data_dir: Path | str = "config/database",
+   data_dir: Path | str = "config/data",
 ) -> Dict[str, Any]:
    """
    1) Atualiza projetos → jira_projetos_latest.csv
@@ -731,12 +712,14 @@ def run_extracao_jira_bases(
    """
    data_dir = Path(data_dir)
    data_dir.mkdir(parents=True, exist_ok=True)
-   base  = jira_cfg.get("base_url")  or os.getenv("JIRA_BASE_URL")
-   email = jira_cfg.get("email")     or os.getenv("JIRA_EMAIL")
-   token = jira_cfg.get("api_token") or os.getenv("JIRA_API_TOKEN")
-   if not (base and email and token):
-       raise ValueError("[jira] configure base_url/email/api_token no secrets ou JIRA_BASE_URL/JIRA_EMAIL/JIRA_API_TOKEN no ambiente")
-   jc = JiraClient(base_url=base, email=email, api_token=token)
+   for k in ("base_url", "email", "api_token"):
+       if not jira_cfg.get(k):
+           raise ValueError(f"[jira] faltando chave '{k}' no secrets")
+   jc = JiraClient(
+       base_url=jira_cfg["base_url"],
+       email=jira_cfg["email"],
+       api_token=jira_cfg["api_token"],
+   )
    tag = _now_tag()
    # 1) Projetos
    projetos = jc.list_projects()
@@ -751,16 +734,13 @@ def run_extracao_jira_bases(
            "lead": lead.get("displayName"),
        })
    df_proj = pd.DataFrame(proj_rows)
-   proj_ts     = TEMP_DIR / f"jira_projetos_{tag}.csv"       # histórico
-   proj_latest = TEMP_DIR / "jira_projetos_latest.csv"       # latest
-   df_proj.to_csv(proj_ts, index=False) 
-   df_proj.to_csv(proj_latest, index=False)
-
+   proj_ts = data_dir / f"jira_projetos_{tag}.csv"
+   df_proj.to_csv(proj_ts, index=False)
+   df_proj.to_csv(data_dir / "jira_projetos_latest.csv", index=False)
    # projetos a varrer
-   project_keys = _load_project_keys_from_csv(Path("."))  # o parâmetro é ignorado; a função usa TEMP_DIR
+   project_keys = _load_project_keys_from_csv(data_dir)
    if not project_keys:
-        project_keys = [app_cfg.get("default_project", "PROJ")]
-
+       project_keys = [app_cfg.get("default_project", "PROJ")]
    tipos = {
        "func":  ["Functionality", "Func", "Fun", "Funcionalidade"],
        "epic":  ["Epic"],
@@ -770,9 +750,9 @@ def run_extracao_jira_bases(
    }
    saved = {
        "projetos": {
-           "latest": str(proj_latest),
-            "timestamped": str(proj_ts),
-            "count": int(len(df_proj)),
+           "latest": "config/data/jira_projetos_latest.csv",
+           "timestamped": str(proj_ts),
+           "count": int(len(df_proj)),
        }
    }
    # fields e flatteners por label
@@ -825,8 +805,8 @@ def run_extracao_jira_bases(
                    "reporter": ((ff.get("reporter") or {}).get("displayName")),
                })
            df = pd.DataFrame(rows)
-       ts_path     = TEMP_DIR / f"jira_issues_{label}_{tag}.csv"     # histórico
-       latest_path = TEMP_DIR / f"jira_issues_{label}_latest.csv"    # latest
+       ts_path = data_dir / f"jira_issues_{label}_{tag}.csv"
+       latest_path = data_dir / f"jira_issues_{label}_latest.csv"
        df.to_csv(ts_path, index=False)
        df.to_csv(latest_path, index=False)
        saved[label] = {

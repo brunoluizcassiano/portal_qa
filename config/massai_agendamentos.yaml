@@ -9,13 +9,13 @@
   dias_semana: ["Todos"]
 
 - fluxo_name: "extracao_jira_sprint"
-  horario: "15:58"
+  horario: "23:58"
   dias_semana: ["Segunda","Terça","Quarta","Quinta","Sexta"]
   quantidade: 1
   servico: "jira"
 
 - fluxo_name: "extracao_zephyr_diaria"
-  horario: "14:34"
+  horario: "23:59"
   dias_semana: ["Todos"]
   quantidade: 1
   servico: "zephyr"

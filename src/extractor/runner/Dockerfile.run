@@ -9,7 +9,7 @@ WORKDIR /app
 RUN pip install --no-cache-dir requests pyyaml
 
 # copie do lugar certo (pasta agent do seu projeto) para /app no container
-COPY agent/scheduler.py /app/scheduler.py
+COPY apps/agent/scheduler.py /app/scheduler.py
 
 # (opcional) tzdata para respeitar TZ=America/Sao_Paulo
 RUN apt-get update && apt-get install -y --no-install-recommends tzdata && rm -rf /var/lib/apt/lists/*

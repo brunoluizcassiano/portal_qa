@@ -4,7 +4,7 @@ services:
   massai-api:
     build:
       context: .
-      dockerfile: app/Dockerfile.fastapi
+      dockerfile: apps/app/Dockerfile.fastapi
     container_name: massai-api
     ports:
       - "8000:8000"
@@ -12,13 +12,18 @@ services:
       - ./config:/app/config
       - ./.streamlit:/app/.streamlit:ro    # monta secrets.toml na API
     environment:
+      - JIRA_BASE_URL=${JIRA_BASE_URL?missing}
+      - JIRA_EMAIL=${JIRA_EMAIL?missing}
+      - JIRA_API_TOKEN=${JIRA_API_TOKEN?missing}
+      - ZEPHYR_BASE_URL=${ZEPHYR_BASE_URL?missing}
+      - ZEPHYR_API_TOKEN=${ZEPHYR_API_TOKEN?missing}
       - SECRETS_PATH=/app/.streamlit/secrets.toml
     restart: always
 
   massai-dashboard:
     build:
       context: .
-      dockerfile: dashboard/Dockerfile.streamlit
+      dockerfile: apps/Dockerfile.streamlit
     container_name: massai-dashboard
     ports:
       - "8501:8501"
@@ -35,6 +40,11 @@ services:
       - ./.streamlit:/app/.streamlit:ro
       - ./config:/app/config:rw
     environment:
+      - JIRA_BASE_URL=${JIRA_BASE_URL?missing}
+      - JIRA_EMAIL=${JIRA_EMAIL?missing}
+      - JIRA_API_TOKEN=${JIRA_API_TOKEN?missing}
+      - ZEPHYR_BASE_URL=${ZEPHYR_BASE_URL?missing}
+      - ZEPHYR_API_TOKEN=${ZEPHYR_API_TOKEN?missing}
       - SECRETS_PATH=/app/.streamlit/secrets.toml
       - TZ=America/Sao_Paulo
       - SCHEDULE_FILE=config/massai_agendamentos.yaml
