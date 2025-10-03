@@ -27,9 +27,9 @@ def _clean_base_url(url: str) -> str:
    return url
 
 def _load_project_keys_from_csv(_: Path) -> List[str]:
-    """Lê config/database/temp/jira_projetos_latest.csv e retorna as project keys."""
+    """Lê config/database/jira_projetos_latest.csv e retorna as project keys."""
     try:
-        p = TEMP_DIR / "jira_projetos_latest.csv"
+        p = BASE_DIR / "jira_projetos_latest.csv"
         if p.exists() and p.stat().st_size > 0:
             df = pd.read_csv(p)
             if "key" in df.columns:
@@ -703,7 +703,7 @@ def run_extracao_jira_sprint(
    df = pd.DataFrame(rows)
    tag = _now_tag()
    out_csv = TEMP_DIR / f"jira_issues_{tag}.csv"             # histórico
-   latest_csv = TEMP_DIR / "jira_issues_latest.csv"          # latest
+   latest_csv = BASE_DIR / "jira_issues_latest.csv"          # latest
 
    df.to_csv(out_csv, index=False)
    df.to_csv(latest_csv, index=False)
@@ -752,7 +752,7 @@ def run_extracao_jira_bases(
        })
    df_proj = pd.DataFrame(proj_rows)
    proj_ts     = TEMP_DIR / f"jira_projetos_{tag}.csv"       # histórico
-   proj_latest = TEMP_DIR / "jira_projetos_latest.csv"       # latest
+   proj_latest = BASE_DIR / "jira_projetos_latest.csv"       # latest
    df_proj.to_csv(proj_ts, index=False) 
    df_proj.to_csv(proj_latest, index=False)
 
@@ -826,7 +826,7 @@ def run_extracao_jira_bases(
                })
            df = pd.DataFrame(rows)
        ts_path     = TEMP_DIR / f"jira_issues_{label}_{tag}.csv"     # histórico
-       latest_path = TEMP_DIR / f"jira_issues_{label}_latest.csv"    # latest
+       latest_path = BASE_DIR / f"jira_issues_{label}_latest.csv"    # latest
        df.to_csv(ts_path, index=False)
        df.to_csv(latest_path, index=False)
        saved[label] = {

@@ -1,0 +1,8 @@
+kpi,projectKey,target,goal
+coverage,*,100,max
+test_avg,*,10,max
+auto_reg,*,80,max
+auto_runs,*,80,max
+test_reg,*,50,max
+negative,*,50,max
+bug_days,*,2,min
