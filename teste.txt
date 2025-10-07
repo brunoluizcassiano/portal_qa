@@ -4,7 +4,7 @@ services:
   massai-api:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: apps/app/Dockerfile.fastapi
     container_name: massai-api
     ports:
       - "8000:8000"
@@ -12,11 +12,6 @@ services:
       - ./.streamlit:/app/.streamlit:ro
       - ./config:/app/config:rw
     environment:
-      - APP_ROLE=api
-      - API_HOST=0.0.0.0
-      - API_PORT=8000
-
-      # suas ENVs originais
       - JIRA_BASE_URL=${JIRA_BASE_URL?missing}
       - JIRA_EMAIL=${JIRA_EMAIL?missing}
       - JIRA_API_TOKEN=${JIRA_API_TOKEN?missing}
@@ -31,24 +26,25 @@ services:
       - HIST_KPI_FILE=config/kpis_historico_execucoes.yaml
       - POLL_INTERVAL=60
       - TOL_MIN=1
+      - SECRETS_PATH=/app/.streamlit/secrets.toml
     restart: always
 
   massai-dashboard:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: apps/Dockerfile.streamlit
     container_name: massai-dashboard
-    depends_on:
-      - massai-api
     ports:
       - "8501:8501"
-    volumes:
-      - ./config:/app/config:rw
     environment:
-      - APP_ROLE=dashboard
-      - DASHBOARD_HOST=0.0.0.0
-      - DASHBOARD_PORT=8501
       - TZ=America/Sao_Paulo
+      # URL do backend para os botões "Executar agora"
       - API_URL=http://massai-api:8000
+      # HISTÓRICO DA EXTRAÇÃO (KPI) que a UI escreve/mostra
       - HIST_KPI_FILE=config/kpis_historico_execucoes.yaml
+    volumes:
+      # << ESSENCIAL >> monta a pasta do host no /app/config do container
+      - ./config:/app/config:rw
+    depends_on:
+      - massai-api
     restart: always
