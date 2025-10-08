@@ -51,19 +51,9 @@ RUN printf '%s\n' \
 '    if [ ! -f "${DASHBOARD_APP_FILE}" ]; then echo "ERRO: ${DASHBOARD_APP_FILE} não encontrado"; exit 1; fi' \
 '    exec streamlit run "${DASHBOARD_APP_FILE}" --server.address "${DASHBOARD_HOST}" --server.port "${DASHBOARD_PORT}"' \
 '    ;;' \
-'  all)' \
-'    # inicia API em background' \
-'    if [ ! -f "${API_APP_DIR}/main.py" ]; then echo "ERRO: ${API_APP_DIR}/main.py não encontrado"; exit 1; fi' \
-'    uvicorn "${API_TARGET}" --app-dir "${API_APP_DIR}" --host "${API_HOST}" --port "${API_PORT}" --proxy-headers --forwarded-allow-ips="*" & ' \
-'    API_PID=$!' \
-'    # inicia Streamlit em foreground' \
-'    if [ ! -f "${DASHBOARD_APP_FILE}" ]; then echo "ERRO: ${DASHBOARD_APP_FILE} não encontrado"; exit 1; fi' \
-'    exec streamlit run "${DASHBOARD_APP_FILE}" --server.address "${DASHBOARD_HOST}" --server.port "${DASHBOARD_PORT}"' \
-'    ;;' \
-'  *) echo "APP_ROLE inválido: ${APP_ROLE} (use: api|dashboard|all)"; exit 1 ;;' \
+'  *) echo "APP_ROLE inválido: ${APP_ROLE} (use: api|dashboard)"; exit 1 ;;' \
 'esac' \
 > /entrypoint.sh && chmod +x /entrypoint.sh
-
 
 EXPOSE 8000 8501
 ENTRYPOINT ["/entrypoint.sh"]

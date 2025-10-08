@@ -61,5 +61,12 @@
         "percentual_sucesso": "100.00%",
         "zephyr_test_case_id": "TEST-7114",
         "zephyr_status": "PASSOU"
+    },
+    {
+        "fluxo": "Consultar Todo Externo",
+        "data_hora": "08/10/2025 10:16:17",
+        "percentual_sucesso": "100.00%",
+        "zephyr_test_case_id": "TEST-1628",
+        "zephyr_status": "FALHOU"
     }
 ]
