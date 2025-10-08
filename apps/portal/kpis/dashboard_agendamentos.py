@@ -141,7 +141,7 @@ def _resolver_api_url() -> str:
                 return str(s["api_url"])
     except Exception:
         pass
-    return "http://massai-api:8000"
+    return "http://127.0.0.1:8000"
 
 def _pretty_error(r: requests.Response) -> str:
     try:

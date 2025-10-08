@@ -8,7 +8,7 @@ class FluxoCartaoAgent:
         self.fluxos = self.carregar_yaml(fluxos_file)
         self.massai_config = self.carregar_yaml(massai_config_file) if massai_config_file else {}
 
-        self.base_url = self.massai_config.get('api_base_url', 'http://massai-api:8000')
+        self.base_url = self.massai_config.get('api_base_url', 'http://127.0.0.1:8000')
         self.headers_default = self.massai_config.get('default_headers', {})
 
     def carregar_yaml(self, caminho):

@@ -53,6 +53,8 @@ RUN printf '%s\n' \
 '    ;;' \
 '  all)' \
 '    # inicia API em background' \
+'    export API_URL="${API_URL:-http://127.0.0.1:8000}"' \
+'    echo "→ API base (ALL) = ${API_URL}"' \
 '    if [ ! -f "${API_APP_DIR}/main.py" ]; then echo "ERRO: ${API_APP_DIR}/main.py não encontrado"; exit 1; fi' \
 '    uvicorn "${API_TARGET}" --app-dir "${API_APP_DIR}" --host "${API_HOST}" --port "${API_PORT}" --proxy-headers --forwarded-allow-ips="*" & ' \
 '    API_PID=$!' \

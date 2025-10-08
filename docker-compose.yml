@@ -19,7 +19,11 @@ services:
       - DASHBOARD_HOST=0.0.0.0
       - DASHBOARD_PORT=8501
       # Streamlit consumindo API local (mesmo container)
-      - API_URL=http://127.0.0.1:8000
+      - API_URL=http://127.0.0.1:8000     # << CHAVE
+      - NO_PROXY=127.0.0.1,localhost      # evita proxy
+      - no_proxy=127.0.0.1,localhost
+      - HTTP_PROXY=
+      - HTTPS_PROXY=
       - TZ=America/Sao_Paulo
 
       # suas ENVs originais da API

@@ -31,7 +31,7 @@ from portal.massa.home_massa import pagina_home_massa
 MASSAS_FILE = 'config/massai_massa_gerada.yaml'
 with open('config/settings.yaml') as f:
     settings = yaml.safe_load(f)
-API_URL = settings.get('api_url', 'http://massai-api:8000')
+API_URL = settings.get('api_url', 'http://127.0.0.1:8000')
 # === FUNÇÕES ===
 def salvar_massa_gerada(fluxo_name, dados):
     if os.path.exists(MASSAS_FILE):

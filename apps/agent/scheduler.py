@@ -9,7 +9,7 @@ ENV:
   HIST_FILE           = config/massai_historico_execucoes.yaml
   SCHEDULE_KPI_FILE   = config/kpis_agendamentos.yaml
   HIST_KPI_FILE       = config/kpis_historico_execucoes.yaml
-  API_URL             = http://massai-api:8000
+  API_URL             = http://127.0.0.1:8000
   POLL_INTERVAL       = 60
   TOL_MIN             = 1
   TZ                  = America/Sao_Paulo
@@ -54,7 +54,7 @@ def _write_last_update_csv(dt: datetime.datetime, path_str: str = "config/databa
         w.writerow([dt.strftime("%d/%m/%Y %H:%M:%S")])  # formato DD/MM/AAAA HH:MM:SS
 
 def _carregar_api_url_default():
-    api_url = "http://massai-api:8000"
+    api_url = "http://127.0.0.1:8000"
     try:
         if os.path.exists("config/settings.yaml"):
             with open("config/settings.yaml", "r", encoding="utf-8") as f:
