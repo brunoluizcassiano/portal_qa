@@ -1,15 +1,19 @@
 # -*- coding: utf-8 -*-
 import os
 import re
+import uuid
 import yaml
 import json
+import random
+import datetime
 import requests
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple
 from requests import Session
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from requests.auth import HTTPBasicAuth
 
+# ---------------- Utils ----------------
 
 def _asbool(v, default=False) -> bool:
     if v is None:
@@ -18,13 +22,11 @@ def _asbool(v, default=False) -> bool:
         return v
     return str(v).strip().lower() not in ("false", "0", "no", "off")
 
-
 def _safe_yaml_load(path: Optional[str]) -> dict:
     if path and os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
             return yaml.safe_load(f) or {}
     return {}
-
 
 def _jsonish(obj: Any) -> Any:
     try:
@@ -33,41 +35,29 @@ def _jsonish(obj: Any) -> Any:
     except Exception:
         return str(obj)
 
-
 def _get_value_from_path(data: Any, path: str) -> Any:
-    """
-    Lê caminhos do tipo:
-      - client.nome
-      - data[0].id
-      - cards[0].cardId
-    Sem libs externas (jsonpath).
-    """
-    try:
-        parts = [p for p in re.split(r"[.\[\]]+", str(path).strip()) if p != ""]
-        cur: Any = data
-        for p in parts:
-            if isinstance(cur, list):
+    parts = [p for p in re.split(r"[.\[\]]+", str(path).strip()) if p != ""]
+    cur: Any = data
+    for p in parts:
+        if isinstance(cur, list):
+            try:
                 idx = int(p)
-                if idx < 0 or idx >= len(cur):
-                    return None
-                cur = cur[idx]
-            elif isinstance(cur, dict):
-                cur = cur.get(p)
-            else:
+            except Exception:
                 return None
-        return cur
-    except Exception:
-        return None
-
+            if idx < 0 or idx >= len(cur):
+                return None
+            cur = cur[idx]
+        elif isinstance(cur, dict):
+            cur = cur.get(p)
+        else:
+            return None
+    return cur
 
 def _substitute_templates(value: Any, ctx: Dict[str, Any]) -> Any:
-    """
-    Substitui {{variavel}} em strings; aplica recursivamente em dicts/listas.
-    """
     if isinstance(value, str):
         def repl(m):
-            key = m.group(1).strip()
-            v = ctx.get(key)
+            k = m.group(1).strip()
+            v = ctx.get(k)
             return "" if v is None else str(v)
         return re.sub(r"\{\{\s*([^}]+)\s*\}\}", repl, value)
     if isinstance(value, dict):
@@ -76,48 +66,66 @@ def _substitute_templates(value: Any, ctx: Dict[str, Any]) -> Any:
         return [_substitute_templates(v, ctx) for v in value]
     return value
 
+def _eval_expr(expr: str, ctx: Dict[str, Any]) -> str:
+    expr = (expr or "").strip()
+
+    if expr.lower().startswith("uuid4("):
+        return str(uuid.uuid4())
+
+    m = re.match(r"randint\(\s*(\d+)\s*,\s*(\d+)\s*\)", expr, re.I)
+    if m:
+        a, b = int(m.group(1)), int(m.group(2))
+        return str(random.randint(a, b))
+
+    m = re.match(r"digits\(\s*(\d+)\s*\)", expr, re.I)
+    if m:
+        n = int(m.group(1))
+        return "".join(str(random.randint(0,9)) for _ in range(n))
+
+    m = re.match(r"alphanum\(\s*(\d+)\s*\)", expr, re.I)
+    if m:
+        n = int(m.group(1))
+        alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+        return "".join(random.choice(alphabet) for _ in range(n))
+
+    m = re.match(r'now\(\s*"(.*?)"\s*\)', expr, re.I)
+    if m:
+        fmt = m.group(1)
+        return datetime.datetime.now().strftime(fmt)
+    if expr.lower().startswith("now("):
+        return datetime.datetime.now().isoformat(timespec="seconds")
+
+    m = re.match(r'seq\(\s*"?(?P<name>[\w\-]*)"?\s*(?:,\s*start=(?P<start>\d+))?\s*(?:,\s*step=(?P<step>\d+))?\s*(?:,\s*pad=(?P<pad>\d+))?\s*\)', expr, re.I)
+    if m:
+        name = m.group("name") or "__seq__"
+        start = int(m.group("start") or 1)
+        step  = int(m.group("step")  or 1)
+        pad   = int(m.group("pad")   or 0)
+        key = f"__seq__:{name}"
+        cur = ctx.get(key, start)
+        ctx[key] = cur + step
+        s = str(cur)
+        return s.zfill(pad) if pad > 0 else s
+
+    return expr  # literal
+
+# --------------- Agent ----------------
 
 class FluxoCartaoAgent:
     """
-    Executa fluxos HTTP a partir de YAML.
-
-    SUPORTA NOVA ESTRUTURA (recomendada):
-    ---
-    ' Onboarding gluon':
-      - tipo: api
-        nome: ' Onboarding'
-        metodo: POST
-        url: https://.../v1/card_onboardings/00000001280/onboarding
-        params: {}
-        headers: { Content-Type: application/json }
-        payload: { ... }
-        auth:
-          type: none | bearer | basic
-          per_env: false
-          bearer: { DEFAULT: "<token>" }           # se type=bearer
-          basic: { DEV: {user: "...", password: "..."} }  # se type=basic
-        variaveis:
-          - nome: cartao
-            origem: cards[0].cardId
-
-    BACKWARD COMPAT:
-    Consultar Todo Externo:
-      - api_name: https://jsonplaceholder.typicode.com/todos/1
-        tipo_acao: GET
-        payload: {}
+    Suporta:
+      - tipo/nome/metodo/url|url_por_ambiente/params/headers/payload|payload_por_ambiente/auth/variaveis/pre_request
+      - Substituição {{variavel}} em URL/params/headers/payload
+      - Extração de variáveis do response (variaveis: [{nome, origem}])
+      - Pré-request (pre_request.vars: [{nome, expr}])
+      - Compatibilidade com estrutura legacy (api_name/tipo_acao/payload)
     """
 
-    def __init__(
-        self,
-        api_routes_file: Optional[str],
-        fluxos_file: str,
-        massai_config_file: Optional[str] = None,
-    ):
+    def __init__(self, api_routes_file: Optional[str], fluxos_file: str, massai_config_file: Optional[str] = None):
         self.api_routes = _safe_yaml_load(api_routes_file)
         self.fluxos = _safe_yaml_load(fluxos_file)
         self.massai_config = _safe_yaml_load(massai_config_file) if massai_config_file else {}
 
-        # ambiente atual (para url_por_ambiente, payload_por_ambiente e auth per_env)
         self.current_env: str = (
             os.getenv("MASSAI_ENV")
             or os.getenv("ENV_CURRENT")
@@ -125,19 +133,12 @@ class FluxoCartaoAgent:
             or "DEV"
         ).upper()
 
-        # headers padrão opcionais
         self.headers_default: Dict[str, str] = self.massai_config.get("default_headers", {}) or {}
-
-        # base_url usada somente no modo legacy quando api_name não é URL
         self.base_url: str = self.massai_config.get("api_base_url", "http://127.0.0.1:8000")
-
-        # auth global básica opcional via massai_config (legacy)
         self.auth_basic_global = self._resolve_basic_auth(self.massai_config)
-
-        # sessão estilo jira_client
         self.session: Session = self._build_session()
 
-    # -------------------- Session --------------------
+    # ----- session / auth -----
 
     def _resolve_basic_auth(self, cfg: dict):
         if not isinstance(cfg, dict):
@@ -158,30 +159,22 @@ class FluxoCartaoAgent:
         s.verify = _asbool(os.getenv("MASSAI_SSL_VERIFY"), self.massai_config.get("ssl_verify", False))
 
         retries = Retry(
-            total=5,
-            connect=5,
-            read=5,
-            backoff_factor=0.5,
+            total=5, connect=5, read=5, backoff_factor=0.5,
             status_forcelist=(429, 500, 502, 503, 504),
             allowed_methods=("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"),
             raise_on_status=False,
         )
         adapter = HTTPAdapter(max_retries=retries, pool_connections=20, pool_maxsize=20)
-        s.mount("http://", adapter)
-        s.mount("https://", adapter)
+        s.mount("http://", adapter); s.mount("https://", adapter)
 
-        # headers default + Accept JSON
         s.headers.update({"Accept": "application/json"})
         if self.headers_default:
             s.headers.update(self.headers_default)
-
-        # auth básica global (legacy)
         if self.auth_basic_global:
             s.auth = self.auth_basic_global
-
         return s
 
-    # -------------------- Legacy route resolver --------------------
+    # ----- helpers -----
 
     def _is_absolute_url(self, name_or_url: str) -> bool:
         n = (name_or_url or "").strip().lower()
@@ -197,60 +190,38 @@ class FluxoCartaoAgent:
         headers = cfg.get("headers") or {}
         return url, method, headers
 
-    # -------------------- Per-step auth --------------------
-
-    def _apply_step_auth(
-        self,
-        step: Dict[str, Any],
-        headers: Dict[str, str]
-    ) -> Tuple[Optional[HTTPBasicAuth], Dict[str, str]]:
-        """
-        Retorna (http_basic_auth, headers_atualizados_com_bearer_se_existir)
-        """
+    def _apply_step_auth(self, step: Dict[str, Any], headers: Dict[str, str]) -> Tuple[Optional[HTTPBasicAuth], Dict[str, str]]:
         auth_cfg = step.get("auth") or {}
         auth_type = (auth_cfg.get("type") or "none").lower()
         per_env = bool(auth_cfg.get("per_env", False))
 
-        # clone headers para não poluir o que veio da session
         final_headers = dict(headers or {})
-
         if auth_type == "bearer":
             token_map = auth_cfg.get("bearer") or {}
-            token = None
+            token = token_map.get("DEFAULT")
             if per_env:
-                token = token_map.get(self.current_env)
-            else:
-                token = token_map.get("DEFAULT") or token_map.get(self.current_env)
+                token = token_map.get(self.current_env, token)
             if token and "Authorization" not in {k.title(): v for k, v in final_headers.items()}:
                 final_headers["Authorization"] = f"Bearer {token}"
             return None, final_headers
 
         if auth_type == "basic":
             basic_map = auth_cfg.get("basic") or {}
-            creds = None
+            creds = basic_map.get("DEFAULT", {})
             if per_env:
-                creds = basic_map.get(self.current_env) or {}
-            else:
-                creds = basic_map.get("DEFAULT") or basic_map.get(self.current_env) or {}
-            user = creds.get("user")
-            pwd = creds.get("password")
+                creds = basic_map.get(self.current_env, creds)
+            user, pwd = creds.get("user"), creds.get("password")
             if user and pwd:
                 return HTTPBasicAuth(user, pwd), final_headers
             return None, final_headers
 
-        # none -> usa auth da Session (se houver)
         return None, final_headers
-
-    # -------------------- HTTP call --------------------
 
     def _call(self, method: str, url: str, params: Dict[str, Any], json_body: Any,
               headers: Dict[str, str], basic_auth: Optional[HTTPBasicAuth]):
         if method == "GET":
             return self.session.get(url, params=params or {}, headers=headers, auth=basic_auth, timeout=180, verify=self.session.verify)
-        elif method in ("POST", "PUT", "PATCH", "DELETE"):
-            return self.session.request(method, url, params=params or {}, json=json_body, headers=headers, auth=basic_auth, timeout=180, verify=self.session.verify)
-        else:
-            raise ValueError(f"Método HTTP não suportado: {method}")
+        return self.session.request(method, url, params=params or {}, json=json_body, headers=headers, auth=basic_auth, timeout=180, verify=self.session.verify)
 
     def _parse_body(self, resp: requests.Response) -> Any:
         ct = (resp.headers.get("Content-Type") or "").lower()
@@ -264,76 +235,80 @@ class FluxoCartaoAgent:
                     return resp.text
         return resp.text
 
-    # -------------------- Execução (nova estrutura) --------------------
+    # ----- pre-request -----
+
+    def _run_prerequest(self, step: Dict[str, Any], ctx: Dict[str, Any]):
+        pr = (step.get("pre_request") or {}).get("vars") or []
+        for item in pr:
+            nome = (item.get("nome") or "").strip()
+            expr = (item.get("expr") or "").strip()
+            if not nome or not expr:
+                continue
+            try:
+                ctx[nome] = _eval_expr(expr, ctx)
+            except Exception:
+                ctx[nome] = None
+
+    # ----- execução (novo formato) -----
 
     def _run_step_new(self, step: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        step novo formato:
-          tipo/nome/metodo/url|url_por_ambiente/params/headers/payload|payload_por_ambiente/auth/variaveis
-        """
         nome = (step.get("nome") or "").strip() or "(sem-nome)"
         method = (step.get("metodo") or "GET").strip().upper()
 
-        # URL (suporta por ambiente)
+        # 1) pré-request
+        self._run_prerequest(step, ctx)
+
+        # 2) resolve URL/params/headers/payload (inclui por ambiente)
         if "url_por_ambiente" in step and isinstance(step["url_por_ambiente"], dict):
             raw_url = step["url_por_ambiente"].get(self.current_env, "")
         else:
             raw_url = step.get("url", "")
-
-        # Params / Headers / Payload (suporta payload por ambiente)
         raw_params = step.get("params", {}) or {}
         raw_headers = step.get("headers", {}) or {}
-
         if "payload_por_ambiente" in step and isinstance(step["payload_por_ambiente"], dict):
             raw_payload = step["payload_por_ambiente"].get(self.current_env, {})
         else:
             raw_payload = step.get("payload", {})
 
-        # Substitui {{variavel}} em tudo com base no contexto acumulado
+        # 3) substitui {{variavel}} com contexto atualizado
         url = _substitute_templates(raw_url, ctx)
         params = _substitute_templates(raw_params, ctx)
         headers = _substitute_templates(raw_headers, ctx)
         payload = _substitute_templates(raw_payload, ctx)
-
-        # headers precisam ser str
         headers = {str(k): str(v) for k, v in (headers or {}).items()}
 
-        # Auth do passo (bearer/basic por ambiente)
+        # 4) auth do passo
         basic_auth, headers = self._apply_step_auth(step, headers)
 
-        # Chamada HTTP
+        # 5) request
         resp = self._call(method, url, params, payload if method != "GET" else None, headers, basic_auth)
         resp_data = self._parse_body(resp)
 
-        # Extrai variáveis do response e guarda no contexto
+        # 6) extrai variáveis do response
         for var in step.get("variaveis", []) or []:
             nome_var = (var.get("nome") or "").strip()
             origem = (var.get("origem") or "").strip()
             if not nome_var or not origem:
                 continue
-            valor = _get_value_from_path(resp_data, origem)
-            ctx[nome_var] = valor
+            ctx[nome_var] = _get_value_from_path(resp_data, origem)
 
-        return {
-            "step": nome,
-            "method": method,
-            "url": url,
-            "status_code": resp.status_code,
-            "response": _jsonish(resp_data),
-        }
+        return {"step": nome, "method": method, "url": url, "status_code": resp.status_code, "response": _jsonish(resp_data)}
 
-    # -------------------- Execução (legacy) --------------------
+    # ----- execução (legacy) -----
+
+    def _is_legacy_step(self, step: Dict[str, Any]) -> bool:
+        if step.get("tipo") == "api" or step.get("metodo") or step.get("url") or step.get("url_por_ambiente"):
+            return False
+        return True
 
     def _run_step_legacy(self, step: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
         api_name = step.get("api_name")
         tipo_acao = (step.get("tipo_acao") or "GET").strip().upper()
         payload = step.get("payload", {}) or {}
         step_headers = step.get("headers", {}) or {}
-
         if not api_name:
-            return {"step": "(legacy sem api_name)", "status_code": None, "error": "Passo sem 'api_name'."}
+            return {"step": "(legacy)", "status_code": None, "error": "Passo sem 'api_name'."}
 
-        # resolve url/method/headers
         headers: Dict[str, str] = dict(self.session.headers or {})
         if self._is_absolute_url(api_name):
             url = api_name.strip()
@@ -346,60 +321,35 @@ class FluxoCartaoAgent:
             method = tipo_acao or method_routes or "GET"
             headers.update(headers_routes or {})
         headers.update(step_headers or {})
-        headers = {k: str(v) for k, v in headers.items()}
-
-        # substituição de {{variavel}} também vale no modo legacy
         url = _substitute_templates(url, ctx)
         payload = _substitute_templates(payload, ctx)
         headers = _substitute_templates(headers, ctx)
         headers = {k: str(v) for k, v in headers.items()}
 
-        # chamada
         resp = self._call(method, url, {}, payload if method != "GET" else None, headers, None)
         resp_data = self._parse_body(resp)
+        return {"step": api_name, "method": method, "url": url, "status_code": resp.status_code, "response": _jsonish(resp_data)}
 
-        # legacy não tem 'variaveis' no passo — nada a extrair
-        return {
-            "step": api_name,
-            "method": method,
-            "url": url,
-            "status_code": resp.status_code,
-            "response": _jsonish(resp_data),
-        }
-
-    # -------------------- API pública --------------------
+    # ----- API pública -----
 
     def run_fluxo(self, fluxo_name: str, quantidade: int = 1) -> List[Dict[str, Any]]:
-        """
-        Executa N vezes o fluxo `fluxo_name`.
-        - Suporta nova estrutura de etapas (tipo=api) e legacy.
-        - Mantém um contexto de variáveis entre as etapas (e entre repetições é limpo).
-        """
         passos = self.fluxos.get(fluxo_name, [])
         if not isinstance(passos, list) or not passos:
             raise ValueError(f"Fluxo '{fluxo_name}' não encontrado ou sem passos.")
 
         resultados: List[Dict[str, Any]] = []
-
         for _ in range(int(quantidade or 1)):
             contexto: Dict[str, Any] = {}
             exec_result: Dict[str, Any] = {}
-
             for step in passos:
                 try:
-                    if step.get("tipo") == "api" or step.get("metodo") or step.get("url") or step.get("url_por_ambiente"):
-                        out = self._run_step_new(step, contexto)
-                        key = out.get("step") or out.get("url")
-                        exec_result[key] = out
-                    else:
-                        # legacy
+                    if self._is_legacy_step(step):
                         out = self._run_step_legacy(step, contexto)
-                        key = out.get("step") or out.get("url")
-                        exec_result[key] = out
+                    else:
+                        out = self._run_step_new(step, contexto)
+                    exec_result[out.get("step") or out.get("url") or "(step)"] = out
                 except Exception as e:
                     key = (step.get("nome") or step.get("api_name") or "(erro)") or "(erro)"
                     exec_result[key] = {"status_code": None, "error": str(e)}
-
             resultados.append(exec_result)
-
         return resultados

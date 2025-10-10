@@ -108,47 +108,56 @@ def _render_auth_fields(prefix: str, auth_cfg: dict, ambientes: list):
 
 
 # =============================================================
-# Variáveis (UI)
+# Painéis: Variáveis & Pré-request
 # =============================================================
 
 def _render_variaveis_panel(key_prefix: str, variaveis_iniciais):
-    """
-    Painel dinâmico: lista de {nome, origem} com botões + e excluir.
-    Retorna a lista final (não mexe diretamente no session_state do chamador).
-    """
     st.markdown("### 🔁 Variáveis Reutilizáveis")
-    st.caption("Mapeie campos do response para variáveis. Depois, use-as em URL, params, headers e body com o formato {{nome}}.")
-    local_list = deepcopy(_ensure_list(variaveis_iniciais))
-
-    # estado interno para o painel
+    st.caption("Mapeie campos do response para variáveis. Depois, use-as em URL, params, headers e payload com {{nome}}.")
     list_key = f"{key_prefix}_vars_list"
     if list_key not in st.session_state:
-        st.session_state[list_key] = local_list
-    # sempre sincroniza com o inicial ao abrir
-    if not st.session_state[list_key] and local_list:
-        st.session_state[list_key] = local_list
+        st.session_state[list_key] = deepcopy(_ensure_list(variaveis_iniciais) or [])
+    items = st.session_state[list_key]
 
-    # render
-    current = st.session_state[list_key]
-    for i in range(len(current)):
+    for i in range(len(items)):
         cols = st.columns([0.4, 0.5, 0.1])
         with cols[0]:
-            nome = st.text_input(f"Nome da variável #{i+1}", value=current[i].get("nome", ""), key=f"{key_prefix}_var_nome_{i}")
+            nome = st.text_input(f"Nome da variável #{i+1}", value=items[i].get("nome",""), key=f"{key_prefix}_var_nome_{i}")
         with cols[1]:
-            origem = st.text_input(f"Origem (ex: client.nome ou data[0].id)", value=current[i].get("origem", ""), key=f"{key_prefix}_var_origem_{i}")
+            origem = st.text_input(f"Origem (ex: client.nome, data[0].id)", value=items[i].get("origem",""), key=f"{key_prefix}_var_origem_{i}")
         with cols[2]:
             if st.button("🗑️", key=f"{key_prefix}_var_del_{i}"):
-                current.pop(i)
-                st.session_state[list_key] = current
-                st.rerun()
-        current[i] = {"nome": nome.strip(), "origem": origem.strip()}
+                items.pop(i); st.rerun()
+        items[i] = {"nome": nome.strip(), "origem": origem.strip()}
 
     if st.button("➕ Adicionar variável", key=f"{key_prefix}_add_var"):
-        current.append({"nome": "", "origem": ""})
-        st.session_state[list_key] = current
-        st.rerun()
+        items.append({"nome":"", "origem":""}); st.rerun()
 
-    return deepcopy(current)
+    return deepcopy(items)
+
+def _render_prereq_panel(key_prefix: str, iniciais):
+    st.markdown("### ⚡ Pré-request (variáveis geradas antes da chamada)")
+    st.caption("Crie variáveis dinâmicas antes da requisição. Ex: digits(11), uuid4(), randint(1000,9999), now(\"%Y%m%d\"), seq(\"doc\",start=1,step=1,pad=11)")
+    list_key = f"{key_prefix}_prereq_list"
+    if list_key not in st.session_state:
+        st.session_state[list_key] = deepcopy(_ensure_list(iniciais) or [])
+    items = st.session_state[list_key]
+
+    for i in range(len(items)):
+        c = st.columns([0.4, 0.5, 0.1])
+        with c[0]:
+            nome = st.text_input(f"Nome #{i+1}", value=items[i].get("nome",""), key=f"{key_prefix}_prename_{i}")
+        with c[1]:
+            expr = st.text_input("Expressão", value=items[i].get("expr",""), key=f"{key_prefix}_preexpr_{i}")
+        with c[2]:
+            if st.button("🗑️", key=f"{key_prefix}_predel_{i}"):
+                items.pop(i); st.rerun()
+        items[i] = {"nome": nome.strip(), "expr": expr.strip()}
+
+    if st.button("➕ Adicionar pré-request", key=f"{key_prefix}_preadd"):
+        items.append({"nome":"","expr":""}); st.rerun()
+
+    return deepcopy(items)
 
 
 # =============================================================
@@ -158,7 +167,7 @@ def _render_variaveis_panel(key_prefix: str, variaveis_iniciais):
 def _merge_step_api(
     tipo_etapa, nome_etapa, metodo, url_mode, url_value, urls_by_env,
     params_yaml, headers_yaml, body_mode, body_yaml, bodies_by_env,
-    auth_tipo, auth_per_env, bearer_map, basic_map, variaveis
+    auth_tipo, auth_per_env, bearer_map, basic_map, variaveis, pre_vars
 ):
     etapa = {"tipo": tipo_etapa, "nome": nome_etapa, "metodo": metodo}
 
@@ -181,13 +190,12 @@ def _merge_step_api(
     elif auth_tipo == "basic":
         etapa["auth"]["basic"] = deepcopy(basic_map)
 
-    # Unificado: variáveis = lista de {nome, origem}
     etapa["variaveis"] = deepcopy(variaveis or [])
+    if pre_vars:
+        etapa["pre_request"] = {"vars": deepcopy(pre_vars)}
 
-    # Compat: se ainda existir "retorno" antigo, removemos (pois agora é o mesmo conceito)
-    if "retorno" in etapa:
-        etapa.pop("retorno", None)
-
+    # compat: remove "retorno" antigo, se existir
+    etapa.pop("retorno", None)
     return etapa
 
 
@@ -214,21 +222,8 @@ def _read_step_defaults(etapa: dict, ambientes: list):
         body_yaml = _safe_dump_yaml(_ensure_dict(etapa.get("payload", {})))
         bodies_by_env = {env: "" for env in ambientes}
 
-    # Unificar retorno antigo => variaveis
     variaveis = _ensure_list(etapa.get("variaveis", []))
-    if not variaveis:
-        retorno_antigo = _ensure_list(etapa.get("retorno", []))
-        # nome = último segmento do path
-        def _last_seg(p):
-            s = str(p).strip()
-            if not s:
-                return ""
-            # pega ultima parte após ponto ou colchete
-            import re
-            parts = [x for x in re.split(r"[.\[\]]+", s) if x]
-            return parts[-1] if parts else s
-        if retorno_antigo:
-            variaveis = [{"nome": _last_seg(p), "origem": str(p)} for p in retorno_antigo]
+    prereq = _ensure_dict(etapa.get("pre_request", {})).get("vars", [])
 
     auth_cfg = _ensure_dict(etapa.get("auth", {}))
     auth_tipo = auth_cfg.get("type", "none")
@@ -239,7 +234,7 @@ def _read_step_defaults(etapa: dict, ambientes: list):
     return (metodo, url_mode, url_value, urls_by_env,
             params_yaml, headers_yaml, body_mode, body_yaml, bodies_by_env,
             auth_tipo, auth_per_env, bearer_map, basic_map,
-            variaveis)
+            variaveis, prereq)
 
 
 # =============================================================
@@ -307,7 +302,7 @@ def pagina_admin_fluxos():
         nome_etapa = st.text_input("Nome da Etapa", key="nome_etapa")
 
         if tipo_etapa == "api":
-            st.caption("Dica: você pode usar variáveis com {{nome}} em URL, params, headers e payload.")
+            st.caption("Dica: use {{variavel}} em URL, params, headers e payload.")
             metodo = st.selectbox("Método HTTP", ["GET", "POST", "PUT", "PATCH", "DELETE"], key="metodo_http")
             url_mode = st.radio("URL", ["Única", "Por Ambiente"], horizontal=True, key="url_mode")
             urls_by_env = {env: "" for env in ambientes}
@@ -332,13 +327,13 @@ def pagina_admin_fluxos():
 
             auth_tipo, auth_per_env, bearer_map, basic_map = _render_auth_fields("new", {}, ambientes)
 
-            # Variáveis (unifica retorno + variáveis)
             variaveis = _render_variaveis_panel("new", [])
+            prereq_vars = _render_prereq_panel("new", [])
 
         else:
             topico_envio = st.text_input("Tópico Kafka")
             mensagem = st.text_area("Mensagem (YAML)", height=180)
-            variaveis = []  # não se aplica para kafka
+            variaveis, prereq_vars = [], []
 
         if st.button("Salvar Etapa", key="botao_salvar_etapa"):
             try:
@@ -346,7 +341,7 @@ def pagina_admin_fluxos():
                     etapa = _merge_step_api(tipo_etapa, nome_etapa, metodo, url_mode, url_value, urls_by_env,
                                             params_yaml, headers_yaml, body_mode, body_yaml, bodies_by_env,
                                             auth_tipo, auth_per_env, bearer_map, basic_map,
-                                            variaveis)
+                                            variaveis, prereq_vars)
                 else:
                     etapa = {"tipo": "kafka", "nome": nome_etapa,
                              "topico_envio": topico_envio,
@@ -356,8 +351,10 @@ def pagina_admin_fluxos():
                 salvar_fluxos(fluxos)
                 st.success("Etapa salva com sucesso!")
                 del st.session_state["fluxo_para_adicionar_etapa"]
-                # limpa estado do painel de variáveis
-                st.session_state.pop("new_vars_list", None)
+                # limpa estado local dos painéis
+                for k in list(st.session_state.keys()):
+                    if k.endswith("_vars_list") or k.endswith("_prereq_list"):
+                        st.session_state.pop(k, None)
                 st.rerun()
             except Exception as e:
                 st.error(f"Erro ao salvar: {e}")
@@ -383,9 +380,9 @@ def pagina_admin_fluxos():
             (metodo, url_mode, url_value, urls_by_env,
              params_yaml, headers_yaml, body_mode, body_yaml, bodies_by_env,
              auth_tipo, auth_per_env, bearer_map, basic_map,
-             variaveis_iniciais) = _read_step_defaults(etapa, ambientes)
+             variaveis_iniciais, prereq_iniciais) = _read_step_defaults(etapa, ambientes)
 
-            st.caption("Dica: você pode usar variáveis com {{nome}} em URL, params, headers e payload.")
+            st.caption("Dica: use {{variavel}} em URL, params, headers e payload.")
             metodo = st.selectbox("Método HTTP", ["GET", "POST", "PUT", "PATCH", "DELETE"],
                                   index=["GET","POST","PUT","PATCH","DELETE"].index(metodo), key="editar_metodo")
 
@@ -418,13 +415,13 @@ def pagina_admin_fluxos():
                 ambientes
             )
 
-            # Variáveis (unifica retorno + variáveis) — carregadas da etapa
             variaveis = _render_variaveis_panel("edit", variaveis_iniciais)
+            prereq_vars = _render_prereq_panel("edit", prereq_iniciais)
 
         else:
             topico_envio = st.text_input("Tópico Kafka", value=etapa.get("topico_envio", ""))
             mensagem = st.text_area("Mensagem (YAML)", value=_safe_dump_yaml(etapa.get("mensagem", {})), height=180)
-            variaveis = []
+            variaveis, prereq_vars = [], []
 
         if st.button("Salvar Alterações", key="botao_salvar_edicao"):
             try:
@@ -432,7 +429,8 @@ def pagina_admin_fluxos():
                     etapa_editada = _merge_step_api(
                         tipo_etapa, nome_etapa, metodo, url_mode, url_value, urls_by_env,
                         params_yaml, headers_yaml, body_mode, body_yaml, bodies_by_env,
-                        auth_tipo, auth_per_env, bearer_map, basic_map, variaveis
+                        auth_tipo, auth_per_env, bearer_map, basic_map,
+                        variaveis, prereq_vars
                     )
                 else:
                     etapa_editada = {"tipo": "kafka", "nome": nome_etapa,
@@ -442,10 +440,12 @@ def pagina_admin_fluxos():
                 fluxos[fluxo_edicao][etapa_edicao_idx] = etapa_editada
                 salvar_fluxos(fluxos)
                 st.success("Etapa editada com sucesso!")
-                # limpar estado de edição e painel de variáveis
                 del st.session_state["fluxo_edicao"]
                 del st.session_state["etapa_edicao_idx"]
-                st.session_state.pop("edit_vars_list", None)
+                # limpa estados locais
+                for k in list(st.session_state.keys()):
+                    if k.endswith("_vars_list") or k.endswith("_prereq_list"):
+                        st.session_state.pop(k, None)
                 st.rerun()
             except Exception as e:
                 st.error(f"Erro ao salvar edição: {e}")
