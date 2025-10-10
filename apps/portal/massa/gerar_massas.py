@@ -1,35 +1,47 @@
 # -*- coding: utf-8 -*-
-import streamlit as st
-import requests
-import yaml
-import json
 import os
+import io
+import re
+import json
 import time
+import yaml
 import pandas as pd
+import requests
+import streamlit as st
 
-# === CONFIGURAÇÕES ===
-MASSAS_FILE = 'config/massai_massa_gerada.yaml'
-SETTINGS_FILE = 'config/settings.yaml'
-FLUXOS_FILE = 'config/fluxos.yaml'
+# arquivos de configuração / saída
+FLUXOS_FILE = "config/fluxos.yaml"
+MASSAS_FILE = "config/massai_massa_gerada.yaml"
+SETTINGS_FILE = "config/settings.yaml"
 
 def _load_settings():
     try:
-        with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
+        with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+    except Exception:
+        cfg = {}
+    return cfg
+
+def _get_api_url():
+    cfg = _load_settings()
+    return cfg.get("api_url", "http://127.0.0.1:8000")
+
+def _carregar_fluxos_yaml():
+    try:
+        with open(FLUXOS_FILE, "r", encoding="utf-8") as f:
             return yaml.safe_load(f) or {}
     except Exception:
         return {}
 
-settings = _load_settings()
-API_URL = settings.get('api_url', 'http://127.0.0.1:8000')
+def _carregar_fluxos():
+    fx = _carregar_fluxos_yaml()
+    return list(fx.keys()) if isinstance(fx, dict) else []
 
-# =============================================================
-# Utils
-# =============================================================
-
-def salvar_massa_gerada(fluxo_name, dados):
+def salvar_massa_gerada_local(fluxo_name: str, dados):
+    """Acrescenta um registro simples no arquivo de massas geradas."""
     try:
         if os.path.exists(MASSAS_FILE):
-            with open(MASSAS_FILE, 'r', encoding='utf-8') as f:
+            with open(MASSAS_FILE, "r", encoding="utf-8") as f:
                 massas = yaml.safe_load(f) or []
         else:
             massas = []
@@ -38,32 +50,28 @@ def salvar_massa_gerada(fluxo_name, dados):
 
     novo_registro = {
         "fluxo_name": fluxo_name,
-        "status": "valida",   # Quando gerada assume como 'valida'
+        "status": "valida",
         "dados": dados,
         "data_criacao": time.strftime("%d/%m/%Y %H:%M:%S")
     }
     massas.append(novo_registro)
-
     try:
         os.makedirs(os.path.dirname(MASSAS_FILE), exist_ok=True)
-        with open(MASSAS_FILE, 'w', encoding='utf-8') as f:
+        with open(MASSAS_FILE, "w", encoding="utf-8") as f:
             yaml.dump(massas, f, allow_unicode=True, sort_keys=False)
     except Exception as e:
-        st.warning(f"Não foi possível gravar o arquivo de massas: {e}")
+        st.warning(f"Não foi possível gravar arquivo de massas: {e}")
 
-def _carregar_fluxos_yaml():
-    try:
-        with open(FLUXOS_FILE, 'r', encoding='utf-8') as f:
-            return yaml.safe_load(f) or {}
-    except Exception:
-        return {}
+# ----------------- helpers para tabela -----------------
+
+_SPLIT_RE = re.compile(r"[.\[\]]+")
 
 def _get_value_from_path(data, path: str):
     """Extrai valor de um dicionário/lista usando caminho tipo 'a.b[0].c'."""
     try:
-        if data is None:
+        if data is None or path is None:
             return None
-        parts = [p for p in __import__('re').split(r"[.\[\]]+", str(path).strip()) if p != ""]
+        parts = [p for p in _SPLIT_RE.split(str(path).strip()) if p != ""]
         cur = data
         for p in parts:
             if isinstance(cur, list):
@@ -79,62 +87,114 @@ def _get_value_from_path(data, path: str):
     except Exception:
         return None
 
-def _coletar_variaveis_do_fluxo(fluxos_yaml: dict, fluxo_nome: str):
+def _coletar_variaveis_por_etapa(fluxos_yaml: dict, fluxo_nome: str):
     """
-    Retorna lista de dicts: [{"nome": "...", "origem": "...", "step_nome": "..."}]
-    Percorre as etapas do fluxo e coleta 'variaveis'.
+    Retorna dict: { step_nome: [ {nome, origem}, ... ] }
     """
-    variaveis = []
+    por_etapa = {}
     etapas = fluxos_yaml.get(fluxo_nome, [])
     for step in etapas:
-        step_nome = step.get("nome") or step.get("api_name") or "(sem-nome)"
-        for var in (step.get("variaveis") or []):
+        step_nome = (step.get("nome") or step.get("api_name") or "(sem-nome)").strip() or "(sem-nome)"
+        variaveis = step.get("variaveis") or []
+        válidas = []
+        for var in variaveis:
             n = (var.get("nome") or "").strip()
             o = (var.get("origem") or "").strip()
             if n and o:
-                variaveis.append({"nome": n, "origem": o, "step_nome": step_nome})
-    return variaveis
+                válidas.append({"nome": n, "origem": o})
+        if válidas:
+            por_etapa[step_nome] = válidas
+    return por_etapa
 
-def _montar_tabela_variaveis(resultado_execucao: dict, variaveis: list):
+def _normalizar_execucoes(resultado):
     """
-    resultado_execucao: dict com chaves = nome da etapa (ou url) e valor = dict com 'response'
-    variaveis: lista de {"nome","origem","step_nome"}
-    Retorna dict {nome_var: valor_extraido}
+    Aceita:
+      - lista de execuções: [ { <etapa>: {...} }, ... ]
+      - dict com 'contexto': { status: "...", contexto: [ { <etapa>: {...} }, ... ] }
+      - um único dict de execução: { <etapa>: {...} }
+    Retorna sempre: (lista_de_execucoes, aviso_formato)
     """
-    row = {}
-    for v in variaveis:
-        nome = v["nome"]
-        origem = v["origem"]
-        step_nome = v["step_nome"]
-        # procura o bloco da etapa correspondente
-        bloco = resultado_execucao.get(step_nome)
-        if not bloco:
-            # se a chave for diferente, tenta qualquer chave que contenha o nome
-            # (algumas execuções podem renomear a chave para URL)
-            # fallback: pega o primeiro bloco
-            bloco = next(iter(resultado_execucao.values()), {})
+    aviso = None
+    if isinstance(resultado, list):
+        return resultado, None
+    if isinstance(resultado, dict):
+        if "contexto" in resultado and isinstance(resultado["contexto"], list):
+            return resultado["contexto"], None
+        # pode ser uma única execução como dict de etapas
+        # transforma em lista de 1 item
+        # (cobre casos onde o backend devolve só um run)
+        return [resultado], None
+    aviso = "Formato de retorno inesperado para montar a tabela."
+    return [], aviso
+
+def _encontrar_bloco_da_etapa(exec_dict: dict, step_name: str):
+    """
+    Os resultados podem usar como chave o nome da etapa ou a URL.
+    1) tenta chave exata
+    2) tenta variações (strip)
+    3) se existir apenas uma chave, usa ela
+    """
+    if step_name in exec_dict:
+        return exec_dict[step_name]
+    trimmed = step_name.strip()
+    for k in exec_dict.keys():
+        if str(k).strip() == trimmed:
+            return exec_dict[k]
+    if len(exec_dict) == 1:
+        return next(iter(exec_dict.values()))
+    # fallback: None
+    return None
+
+def _montar_df_por_etapa(exec_list: list, step_name: str, vars_def: list) -> pd.DataFrame:
+    """
+    Cria um DataFrame com uma linha por execução e colunas = nomes das variáveis.
+    Busca os valores nas respostas da etapa correspondente.
+    """
+    rows = []
+    for item in exec_list:
+        row = {}
+        bloco = _encontrar_bloco_da_etapa(item if isinstance(item, dict) else {}, step_name)
         resp = bloco.get("response") if isinstance(bloco, dict) else None
+        for v in vars_def:
+            nome = v["nome"]
+            origem = v["origem"]
+            if origem.startswith("="):
+                row[nome] = origem[1:]
+            elif origem.startswith("{{") or origem.startswith("ctx:") or origem.startswith("ctx."):
+                # origem do contexto não está no response (a não ser que o backend passe junto)
+                row[nome] = ""
+            else:
+                row[nome] = _get_value_from_path(resp, origem)
+        rows.append(row)
+    return pd.DataFrame(rows)
 
-        # tipos de origem suportados na UI (path é o mais comum)
-        if origem.startswith("={{") or origem.startswith("ctx:") or origem.startswith("ctx."):
-            # valores de contexto/literal não estão no response -> sem backend, não temos fonte aqui
-            row[nome] = ""
-        elif origem.startswith("{{") and origem.endswith("}}"):
-            # variável do contexto (pré-request ou de etapa anterior) – idem acima
-            row[nome] = ""
-        elif origem.startswith("="):
-            row[nome] = origem[1:]
-        else:
-            row[nome] = _get_value_from_path(resp, origem)
-    return row
+def _gerar_excel_multiplas_abas(dfs_por_etapa: dict) -> bytes:
+    """
+    Gera um arquivo Excel em memória com uma aba por etapa.
+    """
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="xlsxwriter") as writer:
+        for step_name, df in dfs_por_etapa.items():
+            sheet = step_name[:31] if step_name else "Etapa"
+            if sheet.strip() == "":
+                sheet = "Etapa"
+            # evita nomes duplicados
+            base = sheet
+            idx = 2
+            while sheet in writer.sheets:
+                sheet = (base[:27] + f"_{idx}")[:31]
+                idx += 1
+            df.to_excel(writer, index=False, sheet_name=sheet)
+    buf.seek(0)
+    return buf.read()
 
-# =============================================================
-# Página principal
-# =============================================================
+# ----------------- Página -----------------
 
 def pagina_gerar_massas():
     st.title("🚀 Geração de Massas")
     st.subheader("Selecione o fluxo e execute:")
+
+    api_url = _get_api_url()
 
     fluxos_yaml = _carregar_fluxos_yaml()
     fluxos = list(fluxos_yaml.keys()) if isinstance(fluxos_yaml, dict) else []
@@ -150,61 +210,74 @@ def pagina_gerar_massas():
         params = {"fluxo_name": fluxo_escolhido, "quantidade": quantidade}
         with st.spinner("⏳ Executando fluxo, aguarde..."):
             try:
-                response = requests.post(f"{API_URL.rstrip('/')}/run_fluxo/", json=params)
+                response = requests.post(f"{api_url.rstrip('/')}/run_fluxo/", json=params)
             except Exception as e:
                 st.error(f"❌ Erro de conexão ao chamar o endpoint: {e}")
                 return
 
-            if response.status_code == 200:
-                try:
-                    resultado = response.json()
-                except Exception:
-                    resultado = response.text
+            # tenta interpretar o retorno
+            texto = response.text
+            try:
+                resultado = response.json()
+            except Exception:
+                resultado = texto
 
+            if response.status_code == 200:
                 st.success("✅ Fluxo executado com sucesso!")
-                # Mostra bruto (útil para debug)
+
+                # ======= TABELAS PRIMEIRO =======
+                exec_list, aviso = _normalizar_execucoes(resultado)
+                if aviso:
+                    st.info(aviso)
+
+                if exec_list:
+                    variaveis_por_etapa = _coletar_variaveis_por_etapa(fluxos_yaml, fluxo_escolhido)
+                    dfs_por_etapa = {}
+                    if variaveis_por_etapa:
+                        st.markdown("### 📄 Variáveis por execução (tabelas por etapa)")
+                        for step_name, vars_def in variaveis_por_etapa.items():
+                            df = _montar_df_por_etapa(exec_list, step_name, vars_def)
+                            dfs_por_etapa[step_name] = df
+                            st.markdown(f"**Etapa:** `{step_name}`")
+                            st.dataframe(df, use_container_width=True)
+
+                        # botão de exportação em Excel (uma aba por etapa)
+                        xlsx_bytes = _gerar_excel_multiplas_abas(dfs_por_etapa)
+                        st.download_button(
+                            label="📥 Exportar tabelas em Excel",
+                            data=xlsx_bytes,
+                            file_name=f"variaveis_{fluxo_escolhido.replace(' ','_')}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        )
+                    else:
+                        st.info("Nenhuma variável cadastrada no fluxo para montar as tabelas.")
+                else:
+                    st.info("Não foi possível identificar a lista de execuções no retorno.")
+
+                # ======= JSON BRUTO DEPOIS =======
+                st.markdown("### 🔎 Retorno bruto")
                 try:
                     st.json(resultado)
                 except Exception:
                     st.text(str(resultado))
 
-                # Salva massa localmente
-                salvar_massa_gerada(fluxo_escolhido, resultado)
+                # salvar massa localmente
+                salvar_massa_gerada_local(fluxo_escolhido, resultado)
 
-                # Download
+                # permitir download do JSON
                 try:
-                    json_bytes = json.dumps(resultado, indent=2, ensure_ascii=False).encode('utf-8')
+                    json_bytes = json.dumps(resultado, indent=2, ensure_ascii=False).encode("utf-8")
                     st.download_button(
-                        label="📥 Baixar Resultado",
+                        label="⬇️ Baixar retorno (JSON)",
                         data=json_bytes,
                         file_name=f"massa_{fluxo_escolhido.replace(' ', '_')}.json",
-                        mime='application/json'
+                        mime="application/json"
                     )
                 except Exception as e:
-                    st.warning(f"Não foi possível preparar o download: {e}")
-
-                # ======= TABELA DE VARIÁVEIS (1 linha por execução) =======
-                if isinstance(resultado, list):
-                    variaveis = _coletar_variaveis_do_fluxo(fluxos_yaml, fluxo_escolhido)
-                    if variaveis:
-                        linhas = []
-                        for exec_item in resultado:  # cada execução
-                            if isinstance(exec_item, dict):
-                                linhas.append(_montar_tabela_variaveis(exec_item, variaveis))
-                            else:
-                                linhas.append({})
-                        df = pd.DataFrame(linhas)
-                        st.markdown("### 📄 Variáveis por execução")
-                        st.caption("As colunas são as variáveis cadastradas no fluxo. Valores vazios indicam que a origem não está presente no response (ex.: variáveis de pré-request).")
-                        st.dataframe(df, use_container_width=True)
-                    else:
-                        st.info("Nenhuma variável cadastrada no fluxo para montar a tabela.")
-                else:
-                    st.info("O retorno não está no formato de lista de execuções; tabela não gerada.")
+                    st.warning(f"Não foi possível preparar o download JSON: {e}")
 
             else:
-                # tenta mostrar json de erro quando possível
-                texto = response.text
+                # erro http
                 try:
                     obj = response.json()
                     texto = json.dumps(obj, indent=2, ensure_ascii=False)

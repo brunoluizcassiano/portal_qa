@@ -458,3 +458,109 @@
           title: delectus aut autem
           completed: false
   data_criacao: 10/10/2025 20:40:58
+- fluxo_name: Consultar Todo Externo
+  status: valida
+  dados:
+    status: Sucesso
+    contexto:
+    - https://jsonplaceholder.typicode.com/todos/1:
+        step: https://jsonplaceholder.typicode.com/todos/1
+        method: GET
+        url: https://jsonplaceholder.typicode.com/todos/1
+        status_code: 200
+        response:
+          userId: 1
+          id: 1
+          title: delectus aut autem
+          completed: false
+    - https://jsonplaceholder.typicode.com/todos/1:
+        step: https://jsonplaceholder.typicode.com/todos/1
+        method: GET
+        url: https://jsonplaceholder.typicode.com/todos/1
+        status_code: 200
+        response:
+          userId: 1
+          id: 1
+          title: delectus aut autem
+          completed: false
+    - https://jsonplaceholder.typicode.com/todos/1:
+        step: https://jsonplaceholder.typicode.com/todos/1
+        method: GET
+        url: https://jsonplaceholder.typicode.com/todos/1
+        status_code: 200
+        response:
+          userId: 1
+          id: 1
+          title: delectus aut autem
+          completed: false
+    - https://jsonplaceholder.typicode.com/todos/1:
+        step: https://jsonplaceholder.typicode.com/todos/1
+        method: GET
+        url: https://jsonplaceholder.typicode.com/todos/1
+        status_code: 200
+        response:
+          userId: 1
+          id: 1
+          title: delectus aut autem
+          completed: false
+    - https://jsonplaceholder.typicode.com/todos/1:
+        step: https://jsonplaceholder.typicode.com/todos/1
+        method: GET
+        url: https://jsonplaceholder.typicode.com/todos/1
+        status_code: 200
+        response:
+          userId: 1
+          id: 1
+          title: delectus aut autem
+          completed: false
+    - https://jsonplaceholder.typicode.com/todos/1:
+        step: https://jsonplaceholder.typicode.com/todos/1
+        method: GET
+        url: https://jsonplaceholder.typicode.com/todos/1
+        status_code: 200
+        response:
+          userId: 1
+          id: 1
+          title: delectus aut autem
+          completed: false
+    - https://jsonplaceholder.typicode.com/todos/1:
+        step: https://jsonplaceholder.typicode.com/todos/1
+        method: GET
+        url: https://jsonplaceholder.typicode.com/todos/1
+        status_code: 200
+        response:
+          userId: 1
+          id: 1
+          title: delectus aut autem
+          completed: false
+    - https://jsonplaceholder.typicode.com/todos/1:
+        step: https://jsonplaceholder.typicode.com/todos/1
+        method: GET
+        url: https://jsonplaceholder.typicode.com/todos/1
+        status_code: 200
+        response:
+          userId: 1
+          id: 1
+          title: delectus aut autem
+          completed: false
+    - https://jsonplaceholder.typicode.com/todos/1:
+        step: https://jsonplaceholder.typicode.com/todos/1
+        method: GET
+        url: https://jsonplaceholder.typicode.com/todos/1
+        status_code: 200
+        response:
+          userId: 1
+          id: 1
+          title: delectus aut autem
+          completed: false
+    - https://jsonplaceholder.typicode.com/todos/1:
+        step: https://jsonplaceholder.typicode.com/todos/1
+        method: GET
+        url: https://jsonplaceholder.typicode.com/todos/1
+        status_code: 200
+        response:
+          userId: 1
+          id: 1
+          title: delectus aut autem
+          completed: false
+  data_criacao: 10/10/2025 20:50:04
