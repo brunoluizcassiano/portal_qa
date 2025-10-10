@@ -404,9 +404,12 @@ class FluxoCartaoAgent:
                         out = self._run_step_legacy(step, contexto)
                     else:
                         out = self._run_step_new(step, contexto)
-                    exec_result[out.get("step") or out.get("url") or "(step)"] = out
+                    key = out.get("step") or out.get("url") or "(step)"
+                    exec_result[key] = out
+                    exec_result["_context"] = dict(contexto)   # <-- ADICIONE ESTA LINHA
                 except Exception as e:
                     key = (step.get("nome") or step.get("api_name") or "(erro)") or "(erro)"
                     exec_result[key] = {"status_code": None, "error": str(e)}
             resultados.append(exec_result)
+
         return resultados

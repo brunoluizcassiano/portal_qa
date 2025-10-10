@@ -4,6 +4,7 @@ import io
 import re
 import json
 import time
+import zipfile
 import yaml
 import pandas as pd
 import requests
@@ -13,6 +14,8 @@ import streamlit as st
 FLUXOS_FILE = "config/fluxos.yaml"
 MASSAS_FILE = "config/massai_massa_gerada.yaml"
 SETTINGS_FILE = "config/settings.yaml"
+
+# ----------------- settings -----------------
 
 def _load_settings():
     try:
@@ -109,9 +112,9 @@ def _coletar_variaveis_por_etapa(fluxos_yaml: dict, fluxo_nome: str):
 def _normalizar_execucoes(resultado):
     """
     Aceita:
-      - lista de execuções: [ { <etapa>: {...} }, ... ]
-      - dict com 'contexto': { status: "...", contexto: [ { <etapa>: {...} }, ... ] }
-      - um único dict de execução: { <etapa>: {...} }
+      - lista de execuções: [ { <etapa>: {...}, "_context": {...} }, ... ]
+      - dict com 'contexto': { status: "...", contexto: [ ... ] }
+      - um único dict de execução: { <etapa>: {...}, "_context": {...} }
     Retorna sempre: (lista_de_execucoes, aviso_formato)
     """
     aviso = None
@@ -120,19 +123,13 @@ def _normalizar_execucoes(resultado):
     if isinstance(resultado, dict):
         if "contexto" in resultado and isinstance(resultado["contexto"], list):
             return resultado["contexto"], None
-        # pode ser uma única execução como dict de etapas
-        # transforma em lista de 1 item
-        # (cobre casos onde o backend devolve só um run)
         return [resultado], None
     aviso = "Formato de retorno inesperado para montar a tabela."
     return [], aviso
 
 def _encontrar_bloco_da_etapa(exec_dict: dict, step_name: str):
     """
-    Os resultados podem usar como chave o nome da etapa ou a URL.
-    1) tenta chave exata
-    2) tenta variações (strip)
-    3) se existir apenas uma chave, usa ela
+    1) tenta chave exata; 2) por strip; 3) se existir uma única chave, usa ela.
     """
     if step_name in exec_dict:
         return exec_dict[step_name]
@@ -142,51 +139,103 @@ def _encontrar_bloco_da_etapa(exec_dict: dict, step_name: str):
             return exec_dict[k]
     if len(exec_dict) == 1:
         return next(iter(exec_dict.values()))
-    # fallback: None
+    return None
+
+def _get_from_context(context: dict, origem: str):
+    """
+    Resolve valores do contexto para:
+      - '{{var}}'
+      - 'ctx:foo.bar' ou 'ctx.foo.bar'
+    """
+    s = (origem or "").strip()
+    if not s:
+        return None
+    # {{var}}
+    if s.startswith("{{") and s.endswith("}}"):
+        key = s[2:-2].strip()
+        return context.get(key)
+    # ctx:foo.bar  ou ctx.foo.bar
+    if s.lower().startswith("ctx:") or s.lower().startswith("ctx."):
+        key = s[4:].lstrip(".:")
+        parts = [p for p in _SPLIT_RE.split(key) if p]
+        cur = context
+        for p in parts:
+            if isinstance(cur, dict):
+                cur = cur.get(p)
+            else:
+                return None
+        return cur
     return None
 
 def _montar_df_por_etapa(exec_list: list, step_name: str, vars_def: list) -> pd.DataFrame:
     """
     Cria um DataFrame com uma linha por execução e colunas = nomes das variáveis.
-    Busca os valores nas respostas da etapa correspondente.
+    Busca:
+      - se origem começa com {{...}} ou ctx:..., lê do _context
+      - se origem começa com '=', é literal
+      - senão, lê do response da etapa
     """
     rows = []
     for item in exec_list:
         row = {}
-        bloco = _encontrar_bloco_da_etapa(item if isinstance(item, dict) else {}, step_name)
+        exec_dict = item if isinstance(item, dict) else {}
+        bloco = _encontrar_bloco_da_etapa(exec_dict, step_name)
         resp = bloco.get("response") if isinstance(bloco, dict) else None
+        context = exec_dict.get("_context", {}) if isinstance(exec_dict, dict) else {}
+
         for v in vars_def:
             nome = v["nome"]
             origem = v["origem"]
+
+            # 1) origem do contexto
+            if origem.startswith("{{") or origem.lower().startswith("ctx:") or origem.lower().startswith("ctx."):
+                row[nome] = _get_from_context(context, origem)
+                continue
+
+            # 2) literal
             if origem.startswith("="):
                 row[nome] = origem[1:]
-            elif origem.startswith("{{") or origem.startswith("ctx:") or origem.startswith("ctx."):
-                # origem do contexto não está no response (a não ser que o backend passe junto)
-                row[nome] = ""
-            else:
-                row[nome] = _get_value_from_path(resp, origem)
+                continue
+
+            # 3) caminho no response
+            row[nome] = _get_value_from_path(resp, origem)
         rows.append(row)
     return pd.DataFrame(rows)
 
-def _gerar_excel_multiplas_abas(dfs_por_etapa: dict) -> bytes:
+def _gerar_excel_multiplas_abas(dfs_por_etapa: dict):
     """
-    Gera um arquivo Excel em memória com uma aba por etapa.
+    Tenta gerar XLSX com openpyxl; se não houver engine de Excel instalada,
+    cai para CSVs zipados (um CSV por etapa).
+    Retorna (bytes, mime, file_ext)
     """
-    buf = io.BytesIO()
-    with pd.ExcelWriter(buf, engine="xlsxwriter") as writer:
+    # 1) tenta openpyxl
+    try:
+        import openpyxl  # noqa: F401
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+            for step_name, df in dfs_por_etapa.items():
+                sheet = step_name[:31] if step_name else "Etapa"
+                sheet = sheet if sheet.strip() else "Etapa"
+                base = sheet
+                idx = 2
+                while sheet in writer.sheets:
+                    sheet = (base[:27] + f"_{idx}")[:31]
+                    idx += 1
+                df.to_excel(writer, index=False, sheet_name=sheet)
+        buf.seek(0)
+        return buf.read(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "xlsx"
+    except Exception:
+        pass
+
+    # 2) fallback: zip com CSVs
+    zbuf = io.BytesIO()
+    with zipfile.ZipFile(zbuf, "w", compression=zipfile.ZIP_DEFLATED) as z:
         for step_name, df in dfs_por_etapa.items():
-            sheet = step_name[:31] if step_name else "Etapa"
-            if sheet.strip() == "":
-                sheet = "Etapa"
-            # evita nomes duplicados
-            base = sheet
-            idx = 2
-            while sheet in writer.sheets:
-                sheet = (base[:27] + f"_{idx}")[:31]
-                idx += 1
-            df.to_excel(writer, index=False, sheet_name=sheet)
-    buf.seek(0)
-    return buf.read()
+            csv_bytes = df.to_csv(index=False).encode("utf-8")
+            csv_name = (step_name or "Etapa").replace("/", "_") + ".csv"
+            z.writestr(csv_name, csv_bytes)
+    zbuf.seek(0)
+    return zbuf.read(), "application/zip", "zip"
 
 # ----------------- Página -----------------
 
@@ -241,13 +290,13 @@ def pagina_gerar_massas():
                             st.markdown(f"**Etapa:** `{step_name}`")
                             st.dataframe(df, use_container_width=True)
 
-                        # botão de exportação em Excel (uma aba por etapa)
-                        xlsx_bytes = _gerar_excel_multiplas_abas(dfs_por_etapa)
+                        # exportação (xlsx, com fallback para .zip de CSVs)
+                        file_bytes, mime, ext = _gerar_excel_multiplas_abas(dfs_por_etapa)
                         st.download_button(
-                            label="📥 Exportar tabelas em Excel",
-                            data=xlsx_bytes,
-                            file_name=f"variaveis_{fluxo_escolhido.replace(' ','_')}.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            label="📥 Exportar tabelas",
+                            data=file_bytes,
+                            file_name=f"variaveis_{fluxo_escolhido.replace(' ','_')}.{ext}",
+                            mime=mime,
                         )
                     else:
                         st.info("Nenhuma variável cadastrada no fluxo para montar as tabelas.")
