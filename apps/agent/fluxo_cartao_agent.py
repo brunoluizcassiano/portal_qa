@@ -36,28 +36,30 @@ def _jsonish(obj: Any) -> Any:
         return str(obj)
 
 def _get_value_from_path(data: Any, path: str) -> Any:
-    parts = [p for p in re.split(r"[.\[\]]+", str(path).strip()) if p != ""]
-    cur: Any = data
-    for p in parts:
-        if isinstance(cur, list):
-            try:
+    """Suporta 'a.b.c', 'arr[0].id', etc."""
+    try:
+        parts = [p for p in re.split(r"[.\[\]]+", str(path).strip()) if p != ""]
+        cur: Any = data
+        for p in parts:
+            if isinstance(cur, list):
                 idx = int(p)
-            except Exception:
+                if idx < 0 or idx >= len(cur):
+                    return None
+                cur = cur[idx]
+            elif isinstance(cur, dict):
+                cur = cur.get(p)
+            else:
                 return None
-            if idx < 0 or idx >= len(cur):
-                return None
-            cur = cur[idx]
-        elif isinstance(cur, dict):
-            cur = cur.get(p)
-        else:
-            return None
-    return cur
+        return cur
+    except Exception:
+        return None
 
 def _substitute_templates(value: Any, ctx: Dict[str, Any]) -> Any:
+    """Substitui {{variavel}} em strings; recursivo em dict/list."""
     if isinstance(value, str):
         def repl(m):
-            k = m.group(1).strip()
-            v = ctx.get(k)
+            key = m.group(1).strip()
+            v = ctx.get(key)
             return "" if v is None else str(v)
         return re.sub(r"\{\{\s*([^}]+)\s*\}\}", repl, value)
     if isinstance(value, dict):
@@ -67,27 +69,33 @@ def _substitute_templates(value: Any, ctx: Dict[str, Any]) -> Any:
     return value
 
 def _eval_expr(expr: str, ctx: Dict[str, Any]) -> str:
+    """Avaliador whitelisted para pré-request."""
     expr = (expr or "").strip()
 
+    # uuid4()
     if expr.lower().startswith("uuid4("):
         return str(uuid.uuid4())
 
+    # randint(a,b)
     m = re.match(r"randint\(\s*(\d+)\s*,\s*(\d+)\s*\)", expr, re.I)
     if m:
         a, b = int(m.group(1)), int(m.group(2))
         return str(random.randint(a, b))
 
+    # digits(n)
     m = re.match(r"digits\(\s*(\d+)\s*\)", expr, re.I)
     if m:
         n = int(m.group(1))
-        return "".join(str(random.randint(0,9)) for _ in range(n))
+        return "".join(str(random.randint(0, 9)) for _ in range(n))
 
+    # alphanum(n)
     m = re.match(r"alphanum\(\s*(\d+)\s*\)", expr, re.I)
     if m:
         n = int(m.group(1))
         alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
         return "".join(random.choice(alphabet) for _ in range(n))
 
+    # now("fmt")
     m = re.match(r'now\(\s*"(.*?)"\s*\)', expr, re.I)
     if m:
         fmt = m.group(1)
@@ -95,19 +103,60 @@ def _eval_expr(expr: str, ctx: Dict[str, Any]) -> str:
     if expr.lower().startswith("now("):
         return datetime.datetime.now().isoformat(timespec="seconds")
 
-    m = re.match(r'seq\(\s*"?(?P<name>[\w\-]*)"?\s*(?:,\s*start=(?P<start>\d+))?\s*(?:,\s*step=(?P<step>\d+))?\s*(?:,\s*pad=(?P<pad>\d+))?\s*\)', expr, re.I)
+    # seq(name?, start=1, step=1, pad=0)
+    m = re.match(
+        r'seq\(\s*"?(?P<name>[\w\-]*)"?\s*(?:,\s*start=(?P<start>\d+))?\s*(?:,\s*step=(?P<step>\d+))?\s*(?:,\s*pad=(?P<pad>\d+))?\s*\)',
+        expr, re.I
+    )
     if m:
         name = m.group("name") or "__seq__"
         start = int(m.group("start") or 1)
-        step  = int(m.group("step")  or 1)
-        pad   = int(m.group("pad")   or 0)
+        step = int(m.group("step") or 1)
+        pad = int(m.group("pad") or 0)
         key = f"__seq__:{name}"
         cur = ctx.get(key, start)
         ctx[key] = cur + step
         s = str(cur)
         return s.zfill(pad) if pad > 0 else s
 
-    return expr  # literal
+    # literal
+    return expr
+
+def _resolve_origem_value(origem: str, resp_data: Any, ctx: Dict[str, Any]) -> Any:
+    """
+    Resolve a 'origem' para variáveis pós-resposta:
+      - '{{var}}'              -> do contexto (pré-request/etapas anteriores)
+      - 'ctx.var' / 'ctx:var'  -> do contexto (suporta pontos)
+      - '=literal'             -> literal
+      - 'a.b[0].c'             -> caminho no JSON de resposta
+    """
+    s = (origem or "").strip()
+    if not s:
+        return None
+
+    # {{var}} -> valor do contexto já substituído (string)
+    if re.fullmatch(r"\{\{\s*[^}]+\s*\}\}", s):
+        val = _substitute_templates(s, ctx)
+        return val
+
+    # ctx:foo.bar  ou ctx.foo.bar
+    if s.lower().startswith("ctx:") or s.lower().startswith("ctx."):
+        key = s[4:].lstrip(".:")
+        parts = [p for p in re.split(r"[.\[\]]+", key) if p]
+        cur: Any = ctx
+        for p in parts:
+            if isinstance(cur, dict):
+                cur = cur.get(p)
+            else:
+                return None
+        return cur
+
+    # =literal
+    if s.startswith("="):
+        return s[1:]
+
+    # caminho no response
+    return _get_value_from_path(resp_data, s)
 
 # --------------- Agent ----------------
 
@@ -116,9 +165,9 @@ class FluxoCartaoAgent:
     Suporta:
       - tipo/nome/metodo/url|url_por_ambiente/params/headers/payload|payload_por_ambiente/auth/variaveis/pre_request
       - Substituição {{variavel}} em URL/params/headers/payload
-      - Extração de variáveis do response (variaveis: [{nome, origem}])
+      - Variáveis do response (variaveis: [{nome, origem}]) incluindo contexto/paths/literal
       - Pré-request (pre_request.vars: [{nome, expr}])
-      - Compatibilidade com estrutura legacy (api_name/tipo_acao/payload)
+      - Compatibilidade legacy (api_name/tipo_acao/payload)
     """
 
     def __init__(self, api_routes_file: Optional[str], fluxos_file: str, massai_config_file: Optional[str] = None):
@@ -165,7 +214,8 @@ class FluxoCartaoAgent:
             raise_on_status=False,
         )
         adapter = HTTPAdapter(max_retries=retries, pool_connections=20, pool_maxsize=20)
-        s.mount("http://", adapter); s.mount("https://", adapter)
+        s.mount("http://", adapter)
+        s.mount("https://", adapter)
 
         s.headers.update({"Accept": "application/json"})
         if self.headers_default:
@@ -194,8 +244,8 @@ class FluxoCartaoAgent:
         auth_cfg = step.get("auth") or {}
         auth_type = (auth_cfg.get("type") or "none").lower()
         per_env = bool(auth_cfg.get("per_env", False))
-
         final_headers = dict(headers or {})
+
         if auth_type == "bearer":
             token_map = auth_cfg.get("bearer") or {}
             token = token_map.get("DEFAULT")
@@ -255,7 +305,7 @@ class FluxoCartaoAgent:
         nome = (step.get("nome") or "").strip() or "(sem-nome)"
         method = (step.get("metodo") or "GET").strip().upper()
 
-        # 1) pré-request
+        # 1) pré-request -> gera variáveis no contexto
         self._run_prerequest(step, ctx)
 
         # 2) resolve URL/params/headers/payload (inclui por ambiente)
@@ -270,7 +320,7 @@ class FluxoCartaoAgent:
         else:
             raw_payload = step.get("payload", {})
 
-        # 3) substitui {{variavel}} com contexto atualizado
+        # 3) substitui {{variavel}}
         url = _substitute_templates(raw_url, ctx)
         params = _substitute_templates(raw_params, ctx)
         headers = _substitute_templates(raw_headers, ctx)
@@ -284,15 +334,22 @@ class FluxoCartaoAgent:
         resp = self._call(method, url, params, payload if method != "GET" else None, headers, basic_auth)
         resp_data = self._parse_body(resp)
 
-        # 6) extrai variáveis do response
+        # 6) extrai variáveis do response (ou do contexto/literal)
         for var in step.get("variaveis", []) or []:
             nome_var = (var.get("nome") or "").strip()
             origem = (var.get("origem") or "").strip()
             if not nome_var or not origem:
                 continue
-            ctx[nome_var] = _get_value_from_path(resp_data, origem)
+            valor = _resolve_origem_value(origem, resp_data, ctx)
+            ctx[nome_var] = valor
 
-        return {"step": nome, "method": method, "url": url, "status_code": resp.status_code, "response": _jsonish(resp_data)}
+        return {
+            "step": nome,
+            "method": method,
+            "url": url,
+            "status_code": resp.status_code,
+            "response": _jsonish(resp_data),
+        }
 
     # ----- execução (legacy) -----
 
