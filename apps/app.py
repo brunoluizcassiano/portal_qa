@@ -5,9 +5,19 @@ import json
 import os
 import time
 from streamlit_option_menu import option_menu
+
+from portal.home.home import pagina_home
+
+from portal.massa.home_massa import pagina_home_massa
+from portal.massa.gerar_massas import pagina_gerar_massas
+from portal.massa.admin_fluxos import pagina_admin_fluxos
+from portal.massa.admin_agendamentos import pagina_admin_agendamentos
+from portal.massa.dashboard_status_agendamentos import pagina_dashboard_status
+from portal.massa.gestao_massa import pagina_gestao_massa
 from portal.massa.visualizar_fluxos import pagina_visualizar_fluxos
 from portal.massa.visualizar_fluxo_bonito import pagina_fluxo_bonito
 from portal.massa.dashboard_historico import pagina_dashboard_historico
+
 from portal.kpis.dashboard_home import pagina_dashboard_home
 from portal.kpis.dashboard_kpi import pagina_dashboard_kpi
 from portal.kpis.dashboard_score import pagina_dashboard_score
@@ -21,12 +31,6 @@ from portal.kpis.dashboard_roi import pagina_dashboard_roi
 from portal.kpis.dashboard_admin import pagina_dashboardo_admin
 from portal.kpis.dashboard_agendamentos import pagina_dashboard_agendamentos
 from portal.kpis.dashboard_file import pagina_dashboard_file
-from portal.massa.admin_fluxos import pagina_admin_fluxos
-from portal.massa.admin_agendamentos import pagina_admin_agendamentos
-from portal.massa.dashboard_status_agendamentos import pagina_dashboard_status
-from portal.massa.gestao_massa import pagina_gestao_massa
-from portal.home.home import pagina_home
-from portal.massa.home_massa import pagina_home_massa
 # === CONFIGURAÇÕES ===
 MASSAS_FILE = 'config/massai_massa_gerada.yaml'
 with open('config/settings.yaml') as f:
@@ -90,42 +94,43 @@ elif pagina_principal == "Massa de Dados":
             orientation="horizontal",
         )
         if subsubmenu == "Gerar Massas":
-            st.title("🚀 Geração de Massas")
-            st.subheader("Selecione o fluxo e execute:")
-            try:
-                with open('config/fluxos.yaml') as f:
-                    fluxos_yaml = yaml.safe_load(f)
-                fluxos = list(fluxos_yaml.keys())
-            except Exception:
-                fluxos = []
-            if fluxos:
-                fluxo_escolhido = st.selectbox("🧩 Escolha o fluxo:", fluxos)
-                quantidade = st.slider("🔢 Quantidade de massas:", 1, 100, 10)
-                if st.button("🚀 Executar Fluxo"):
-                    params = {"fluxo_name": fluxo_escolhido, "quantidade": quantidade}
-                    with st.spinner("⏳ Executando fluxo, aguarde..."):
-                        try:
-                            response = requests.post(f"{API_URL}/run_fluxo/", json=params)
-                            if response.status_code == 200:
-                                resultado = response.json()
-                                st.success("✅ Fluxo executado com sucesso!")
-                                st.json(resultado)
-                                # Salvar massa
-                                salvar_massa_gerada(fluxo_escolhido, resultado)
-                                # Permitir download
-                                json_bytes = json.dumps(resultado, indent=2).encode('utf-8')
-                                st.download_button(
-                                    label="📥 Baixar Resultado",
-                                    data=json_bytes,
-                                    file_name=f"massa_{fluxo_escolhido.replace(' ', '_')}.json",
-                                    mime='application/json'
-                                )
-                            else:
-                                st.error(f"❌ Erro na execução:\n\n{response.text}")
-                        except Exception as e:
-                            st.error(f"❌ Erro de conexão:\n\n{e}")
-            else:
-                st.warning("⚠️ Nenhum fluxo encontrado. Cadastre um novo fluxo para começar.")
+            # st.title("🚀 Geração de Massas")
+            # st.subheader("Selecione o fluxo e execute:")
+            # try:
+            #     with open('config/fluxos.yaml') as f:
+            #         fluxos_yaml = yaml.safe_load(f)
+            #     fluxos = list(fluxos_yaml.keys())
+            # except Exception:
+            #     fluxos = []
+            # if fluxos:
+            #     fluxo_escolhido = st.selectbox("🧩 Escolha o fluxo:", fluxos)
+            #     quantidade = st.slider("🔢 Quantidade de massas:", 1, 100, 10)
+            #     if st.button("🚀 Executar Fluxo"):
+            #         params = {"fluxo_name": fluxo_escolhido, "quantidade": quantidade}
+            #         with st.spinner("⏳ Executando fluxo, aguarde..."):
+            #             try:
+            #                 response = requests.post(f"{API_URL}/run_fluxo/", json=params)
+            #                 if response.status_code == 200:
+            #                     resultado = response.json()
+            #                     st.success("✅ Fluxo executado com sucesso!")
+            #                     st.json(resultado)
+            #                     # Salvar massa
+            #                     salvar_massa_gerada(fluxo_escolhido, resultado)
+            #                     # Permitir download
+            #                     json_bytes = json.dumps(resultado, indent=2).encode('utf-8')
+            #                     st.download_button(
+            #                         label="📥 Baixar Resultado",
+            #                         data=json_bytes,
+            #                         file_name=f"massa_{fluxo_escolhido.replace(' ', '_')}.json",
+            #                         mime='application/json'
+            #                     )
+            #                 else:
+            #                     st.error(f"❌ Erro na execução:\n\n{response.text}")
+            #             except Exception as e:
+            #                 st.error(f"❌ Erro de conexão:\n\n{e}")
+            # else:
+            #     st.warning("⚠️ Nenhum fluxo encontrado. Cadastre um novo fluxo para começar.")
+            pagina_gerar_massas()
         elif subsubmenu == "Fluxos":
             pagina_fluxo_bonito()
         elif subsubmenu == "Gestão de Massa":
