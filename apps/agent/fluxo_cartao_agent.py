@@ -389,27 +389,40 @@ class FluxoCartaoAgent:
 
     # ----- API pública -----
 
-    def run_fluxo(self, fluxo_name: str, quantidade: int = 1) -> List[Dict[str, Any]]:
+    def run_fluxo(self, fluxo_name: str, quantidade: int = 1, env: Optional[str] = None) -> List[Dict[str, Any]]:
         passos = self.fluxos.get(fluxo_name, [])
         if not isinstance(passos, list) or not passos:
             raise ValueError(f"Fluxo '{fluxo_name}' não encontrado ou sem passos.")
 
+        # guarda o ambiente atual e aplica o ambiente pedido (se vier da tela)
+        old_env = self.current_env
+        if env:
+            self.current_env = str(env).upper()
+
         resultados: List[Dict[str, Any]] = []
-        for _ in range(int(quantidade or 1)):
-            contexto: Dict[str, Any] = {}
-            exec_result: Dict[str, Any] = {}
-            for step in passos:
-                try:
-                    if self._is_legacy_step(step):
-                        out = self._run_step_legacy(step, contexto)
-                    else:
-                        out = self._run_step_new(step, contexto)
-                    key = out.get("step") or out.get("url") or "(step)"
-                    exec_result[key] = out
-                    exec_result["_context"] = dict(contexto)   # <-- ADICIONE ESTA LINHA
-                except Exception as e:
-                    key = (step.get("nome") or step.get("api_name") or "(erro)") or "(erro)"
-                    exec_result[key] = {"status_code": None, "error": str(e)}
-            resultados.append(exec_result)
+        try:
+            for _ in range(int(quantidade or 1)):
+                contexto: Dict[str, Any] = {}
+                exec_result: Dict[str, Any] = {}
+                for step in passos:
+                    try:
+                        if self._is_legacy_step(step):
+                            out = self._run_step_legacy(step, contexto)
+                        else:
+                            out = self._run_step_new(step, contexto)
+
+                        key = out.get("step") or out.get("url") or "(step)"
+                        exec_result[key] = out
+
+                        # mantém exposto o contexto (pré-request + variáveis extraídas)
+                        exec_result["_context"] = dict(contexto)
+                    except Exception as e:
+                        key = (step.get("nome") or step.get("api_name") or "(erro)") or "(erro)"
+                        exec_result[key] = {"status_code": None, "error": str(e)}
+                resultados.append(exec_result)
+        finally:
+            # restaura o ambiente original do Agent
+            self.current_env = old_env
 
         return resultados
+
