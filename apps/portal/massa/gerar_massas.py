@@ -29,6 +29,13 @@ def _get_api_url():
     cfg = _load_settings()
     return cfg.get("api_url", "http://127.0.0.1:8000")
 
+def _get_envs():
+    cfg = _load_settings()
+    envs = cfg.get("environments")
+    if isinstance(envs, list) and envs:
+        return [str(e).upper() for e in envs]
+    return ["DEV", "UAT", "PROD"]
+
 def _carregar_fluxos_yaml():
     try:
         with open(FLUXOS_FILE, "r", encoding="utf-8") as f:
@@ -99,14 +106,14 @@ def _coletar_variaveis_por_etapa(fluxos_yaml: dict, fluxo_nome: str):
     for step in etapas:
         step_nome = (step.get("nome") or step.get("api_name") or "(sem-nome)").strip() or "(sem-nome)"
         variaveis = step.get("variaveis") or []
-        válidas = []
+        validas = []
         for var in variaveis:
             n = (var.get("nome") or "").strip()
             o = (var.get("origem") or "").strip()
             if n and o:
-                válidas.append({"nome": n, "origem": o})
-        if válidas:
-            por_etapa[step_nome] = válidas
+                validas.append({"nome": n, "origem": o})
+        if validas:
+            por_etapa[step_nome] = validas
     return por_etapa
 
 def _normalizar_execucoes(resultado):
@@ -128,9 +135,7 @@ def _normalizar_execucoes(resultado):
     return [], aviso
 
 def _encontrar_bloco_da_etapa(exec_dict: dict, step_name: str):
-    """
-    1) tenta chave exata; 2) por strip; 3) se existir uma única chave, usa ela.
-    """
+    """1) exata; 2) strip; 3) se só tem uma chave, usa ela."""
     if step_name in exec_dict:
         return exec_dict[step_name]
     trimmed = step_name.strip()
@@ -150,11 +155,9 @@ def _get_from_context(context: dict, origem: str):
     s = (origem or "").strip()
     if not s:
         return None
-    # {{var}}
     if s.startswith("{{") and s.endswith("}}"):
         key = s[2:-2].strip()
         return context.get(key)
-    # ctx:foo.bar  ou ctx.foo.bar
     if s.lower().startswith("ctx:") or s.lower().startswith("ctx."):
         key = s[4:].lstrip(".:")
         parts = [p for p in _SPLIT_RE.split(key) if p]
@@ -169,11 +172,7 @@ def _get_from_context(context: dict, origem: str):
 
 def _montar_df_por_etapa(exec_list: list, step_name: str, vars_def: list) -> pd.DataFrame:
     """
-    Cria um DataFrame com uma linha por execução e colunas = nomes das variáveis.
-    Busca:
-      - se origem começa com {{...}} ou ctx:..., lê do _context
-      - se origem começa com '=', é literal
-      - senão, lê do response da etapa
+    Linha por execução; colunas = nomes das variáveis.
     """
     rows = []
     for item in exec_list:
@@ -186,36 +185,26 @@ def _montar_df_por_etapa(exec_list: list, step_name: str, vars_def: list) -> pd.
         for v in vars_def:
             nome = v["nome"]
             origem = v["origem"]
-
-            # 1) origem do contexto
             if origem.startswith("{{") or origem.lower().startswith("ctx:") or origem.lower().startswith("ctx."):
                 row[nome] = _get_from_context(context, origem)
-                continue
-
-            # 2) literal
-            if origem.startswith("="):
+            elif origem.startswith("="):
                 row[nome] = origem[1:]
-                continue
-
-            # 3) caminho no response
-            row[nome] = _get_value_from_path(resp, origem)
+            else:
+                row[nome] = _get_value_from_path(resp, origem)
         rows.append(row)
     return pd.DataFrame(rows)
 
 def _gerar_excel_multiplas_abas(dfs_por_etapa: dict):
     """
-    Tenta gerar XLSX com openpyxl; se não houver engine de Excel instalada,
-    cai para CSVs zipados (um CSV por etapa).
-    Retorna (bytes, mime, file_ext)
+    Tenta gerar XLSX com openpyxl; se indisponível, gera ZIP com CSVs.
+    Retorna (bytes, mime, ext)
     """
-    # 1) tenta openpyxl
     try:
         import openpyxl  # noqa: F401
         buf = io.BytesIO()
         with pd.ExcelWriter(buf, engine="openpyxl") as writer:
             for step_name, df in dfs_por_etapa.items():
-                sheet = step_name[:31] if step_name else "Etapa"
-                sheet = sheet if sheet.strip() else "Etapa"
+                sheet = (step_name or "Etapa")[:31] or "Etapa"
                 base = sheet
                 idx = 2
                 while sheet in writer.sheets:
@@ -227,7 +216,6 @@ def _gerar_excel_multiplas_abas(dfs_por_etapa: dict):
     except Exception:
         pass
 
-    # 2) fallback: zip com CSVs
     zbuf = io.BytesIO()
     with zipfile.ZipFile(zbuf, "w", compression=zipfile.ZIP_DEFLATED) as z:
         for step_name, df in dfs_por_etapa.items():
@@ -244,6 +232,7 @@ def pagina_gerar_massas():
     st.subheader("Selecione o fluxo e execute:")
 
     api_url = _get_api_url()
+    ambientes = _get_envs()
 
     fluxos_yaml = _carregar_fluxos_yaml()
     fluxos = list(fluxos_yaml.keys()) if isinstance(fluxos_yaml, dict) else []
@@ -252,27 +241,32 @@ def pagina_gerar_massas():
         st.warning("⚠️ Nenhum fluxo encontrado. Cadastre um novo fluxo para começar.")
         return
 
-    fluxo_escolhido = st.selectbox("🧩 Escolha o fluxo:", fluxos)
+    c1, c2 = st.columns([0.6, 0.4])
+    with c1:
+        fluxo_escolhido = st.selectbox("🧩 Escolha o fluxo:", fluxos)
+    with c2:
+        ambiente = st.selectbox("🌎 Ambiente:", ambientes, index=0)
+
     quantidade = st.slider("🔢 Quantidade de massas:", 1, 100, 10)
 
     if st.button("🚀 Executar Fluxo"):
-        params = {"fluxo_name": fluxo_escolhido, "quantidade": quantidade}
-        with st.spinner("⏳ Executando fluxo, aguarde..."):
+        params = {"fluxo_name": fluxo_escolhido, "quantidade": quantidade, "env": ambiente}
+        headers = {"X-MassAI-Env": ambiente}  # ajuda a manter compatibilidade
+        with st.spinner(f"⏳ Executando fluxo em **{ambiente}**..."):
             try:
-                response = requests.post(f"{api_url.rstrip('/')}/run_fluxo/", json=params)
+                response = requests.post(f"{api_url.rstrip('/')}/run_fluxo/", json=params, headers=headers)
             except Exception as e:
-                st.error(f"❌ Erro de conexão ao chamar o endpoint: {e}")
+                st.error(f"❌ Erro de conexão ao endpoint: {e}")
                 return
 
-            # tenta interpretar o retorno
-            texto = response.text
+            raw_text = response.text
             try:
                 resultado = response.json()
             except Exception:
-                resultado = texto
+                resultado = raw_text
 
             if response.status_code == 200:
-                st.success("✅ Fluxo executado com sucesso!")
+                st.success(f"✅ Fluxo executado com sucesso em **{ambiente}**!")
 
                 # ======= TABELAS PRIMEIRO =======
                 exec_list, aviso = _normalizar_execucoes(resultado)
@@ -290,12 +284,11 @@ def pagina_gerar_massas():
                             st.markdown(f"**Etapa:** `{step_name}`")
                             st.dataframe(df, use_container_width=True)
 
-                        # exportação (xlsx, com fallback para .zip de CSVs)
                         file_bytes, mime, ext = _gerar_excel_multiplas_abas(dfs_por_etapa)
                         st.download_button(
                             label="📥 Exportar tabelas",
                             data=file_bytes,
-                            file_name=f"variaveis_{fluxo_escolhido.replace(' ','_')}.{ext}",
+                            file_name=f"variaveis_{fluxo_escolhido.replace(' ','_')}_{ambiente}.{ext}",
                             mime=mime,
                         )
                     else:
@@ -319,17 +312,16 @@ def pagina_gerar_massas():
                     st.download_button(
                         label="⬇️ Baixar retorno (JSON)",
                         data=json_bytes,
-                        file_name=f"massa_{fluxo_escolhido.replace(' ', '_')}.json",
+                        file_name=f"massa_{fluxo_escolhido.replace(' ', '_')}_{ambiente}.json",
                         mime="application/json"
                     )
                 except Exception as e:
                     st.warning(f"Não foi possível preparar o download JSON: {e}")
 
             else:
-                # erro http
                 try:
                     obj = response.json()
-                    texto = json.dumps(obj, indent=2, ensure_ascii=False)
+                    raw_text = json.dumps(obj, indent=2, ensure_ascii=False)
                 except Exception:
                     pass
-                st.error(f"❌ Erro na execução (HTTP {response.status_code}):\n\n{texto}")
+                st.error(f"❌ Erro na execução (HTTP {response.status_code}) em {ambiente}:\n\n{raw_text}")
