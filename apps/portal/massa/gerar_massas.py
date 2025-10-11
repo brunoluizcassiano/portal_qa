@@ -225,6 +225,27 @@ def _gerar_excel_multiplas_abas(dfs_por_etapa: dict):
     zbuf.seek(0)
     return zbuf.read(), "application/zip", "zip"
 
+# ----------------- detecção de "fluxo com ambiente" -----------------
+
+def _fluxo_pede_ambiente(fluxos_yaml: dict, fluxo_nome: str) -> bool:
+    """
+    Retorna True se alguma etapa tiver:
+      - url_por_ambiente
+      - payload_por_ambiente
+      - auth.per_env == True
+    """
+    etapas = fluxos_yaml.get(fluxo_nome, [])
+    for step in etapas:
+        if isinstance(step, dict):
+            if "url_por_ambiente" in step and isinstance(step["url_por_ambiente"], dict):
+                return True
+            if "payload_por_ambiente" in step and isinstance(step["payload_por_ambiente"], dict):
+                return True
+            auth = step.get("auth") or {}
+            if bool(auth.get("per_env", False)):
+                return True
+    return False
+
 # ----------------- Página -----------------
 
 def pagina_gerar_massas():
@@ -232,7 +253,7 @@ def pagina_gerar_massas():
     st.subheader("Selecione o fluxo e execute:")
 
     api_url = _get_api_url()
-    ambientes = _get_envs()
+    todos_ambientes = _get_envs()
 
     fluxos_yaml = _carregar_fluxos_yaml()
     fluxos = list(fluxos_yaml.keys()) if isinstance(fluxos_yaml, dict) else []
@@ -241,20 +262,39 @@ def pagina_gerar_massas():
         st.warning("⚠️ Nenhum fluxo encontrado. Cadastre um novo fluxo para começar.")
         return
 
-    c1, c2 = st.columns([0.6, 0.4])
-    with c1:
-        fluxo_escolhido = st.selectbox("🧩 Escolha o fluxo:", fluxos)
-    with c2:
-        ambiente = st.selectbox("🌎 Ambiente:", ambientes, index=0)
+    # seleção de fluxo primeiro
+    fluxo_escolhido = st.selectbox("🧩 Escolha o fluxo:", fluxos)
+
+    # só mostra o seletor de ambiente se o fluxo pedir ambiente
+    pede_env = _fluxo_pede_ambiente(fluxos_yaml, fluxo_escolhido)
+    if pede_env:
+        ambiente = st.selectbox("🌎 Ambiente:", todos_ambientes, index=0)
+        st.caption("Este fluxo tem configuração por ambiente. Selecione qual executar.")
+    else:
+        ambiente = None  # não será enviado
+        st.caption("Fluxo sem configuração por ambiente.")
 
     quantidade = st.slider("🔢 Quantidade de massas:", 1, 100, 10)
 
     if st.button("🚀 Executar Fluxo"):
-        params = {"fluxo_name": fluxo_escolhido, "quantidade": quantidade, "env": ambiente}
-        headers = {"X-MassAI-Env": ambiente}  # ajuda a manter compatibilidade
-        with st.spinner(f"⏳ Executando fluxo em **{ambiente}**..."):
+        # monta payload e headers apenas se necessário
+        params = {"fluxo_name": fluxo_escolhido, "quantidade": quantidade}
+        headers = {}
+        if pede_env and ambiente:
+            params["env"] = ambiente
+            headers["X-MassAI-Env"] = ambiente
+
+        with st.spinner(f"⏳ Executando fluxo{' em ' + ambiente if ambiente else ''}..."):
             try:
-                response = requests.post(f"{api_url.rstrip('/')}/run_fluxo/", json=params, headers=headers)
+                response = requests.post(
+                    f"{api_url.rstrip('/')}/run_fluxo/",
+                    json=params,
+                    headers=headers or None,
+                    timeout=120
+                )
+            except requests.Timeout:
+                st.error("❌ Timeout ao aguardar a resposta do backend.")
+                return
             except Exception as e:
                 st.error(f"❌ Erro de conexão ao endpoint: {e}")
                 return
@@ -266,7 +306,7 @@ def pagina_gerar_massas():
                 resultado = raw_text
 
             if response.status_code == 200:
-                st.success(f"✅ Fluxo executado com sucesso em **{ambiente}**!")
+                st.success(f"✅ Fluxo executado com sucesso{(' em ' + ambiente) if ambiente else ''}!")
 
                 # ======= TABELAS PRIMEIRO =======
                 exec_list, aviso = _normalizar_execucoes(resultado)
@@ -285,10 +325,13 @@ def pagina_gerar_massas():
                             st.dataframe(df, use_container_width=True)
 
                         file_bytes, mime, ext = _gerar_excel_multiplas_abas(dfs_por_etapa)
+                        fname = f"variaveis_{fluxo_escolhido.replace(' ','_')}"
+                        if ambiente:
+                            fname += f"_{ambiente}"
                         st.download_button(
                             label="📥 Exportar tabelas",
                             data=file_bytes,
-                            file_name=f"variaveis_{fluxo_escolhido.replace(' ','_')}_{ambiente}.{ext}",
+                            file_name=f"{fname}.{ext}",
                             mime=mime,
                         )
                     else:
@@ -309,10 +352,13 @@ def pagina_gerar_massas():
                 # permitir download do JSON
                 try:
                     json_bytes = json.dumps(resultado, indent=2, ensure_ascii=False).encode("utf-8")
+                    fname = f"massa_{fluxo_escolhido.replace(' ', '_')}"
+                    if ambiente:
+                        fname += f"_{ambiente}"
                     st.download_button(
                         label="⬇️ Baixar retorno (JSON)",
                         data=json_bytes,
-                        file_name=f"massa_{fluxo_escolhido.replace(' ', '_')}_{ambiente}.json",
+                        file_name=f"{fname}.json",
                         mime="application/json"
                     )
                 except Exception as e:
@@ -324,4 +370,5 @@ def pagina_gerar_massas():
                     raw_text = json.dumps(obj, indent=2, ensure_ascii=False)
                 except Exception:
                     pass
-                st.error(f"❌ Erro na execução (HTTP {response.status_code}) em {ambiente}:\n\n{raw_text}")
+                st.error(f"❌ Erro na execução (HTTP {response.status_code})"
+                         f"{' em ' + ambiente if ambiente else ''}:\n\n{raw_text}")
