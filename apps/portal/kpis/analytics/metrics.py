@@ -112,7 +112,7 @@ def kpi_auto_reg_now(df_zc: pd.DataFrame, df_ze_filtered: pd.DataFrame, issue_id
 
     auto_ids = set()
     if auto_col:
-        auto_mask = tcz[auto_col].astype(str).strip().str.lower().eq("automated")
+        auto_mask = tcz[auto_col].astype(str).str.strip().str.lower().eq("automated")
         auto_ids = set(pd.to_numeric(tcz.loc[auto_mask, "id"], errors="coerce").dropna().astype(int).tolist())
 
     pass_ids = set()

@@ -137,7 +137,7 @@ elif pagina_principal == "KPI's de Qualidade":
         # ----------------------------
     )
     # Lista de opções desabilitadas
-    desabilitadas = ["Score", "Coverage and Run", "Analytical", "Bugs", "Waves", "Regressivo", "Automation", "ROI"]
+    desabilitadas = ["Coverage and Run", "Analytical", "Bugs", "Waves", "Regressivo", "Automation", "ROI"]
     
     if submenu in desabilitadas:
         st.warning(f"A opção '{submenu}' está desabilitada no momento.")
