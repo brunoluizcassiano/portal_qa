@@ -1,59 +1,49 @@
-# kpis/dashboard_covaregeAndRun.py
+# -*- coding: utf-8 -*-
 import streamlit as st
 import pandas as pd
 import numpy as np
 import altair as alt
-from pathlib import Path
 from datetime import datetime, date, timedelta
 
-DATA = Path("config/database")
+from .analytics.constants import (
+    WARN_RATIO, KPI_LASTUPDATE,
+    JIRA_FUNC, JIRA_EPIC, JIRA_STORY, JIRA_BUG, JIRA_SUBBUG, JIRA_PROJ,
+    ZEPHYR_TC, ZEPHYR_EXEC_MAIN, ZEPHYR_EXEC_FALLBACK,
+    ZEPHYR_CYCLE_MAIN, ZEPHYR_CYCLE_FALLBACK,
+    KPI_TARGETS
+)
+from .analytics.data_access import safe_read_csv, read_last_update
+from .analytics.transformers import (
+    normalize_issue_df, normalize_bugs, extract_linked_issue_ids, extract_years_from_dfs, apply_year_filter,
+    ensure_project_on_executions, apply_project_bugs
+)
+from .analytics.metrics import (
+    get_target,
+    kpi_coverage_now, kpi_test_avg_per_issue_now, kpi_auto_runs_now,
+    kpi_auto_reg_now, kpi_test_reg_now, kpi_negative_now, avg_bug_days,
+    monthly_series_coverage, monthly_series_test_avg, monthly_series_auto_runs,
+    monthly_series_auto_reg, monthly_series_test_reg, monthly_series_negative
+)
 
-ISSUE_COLS = ["key","summary","status","type","priority","created","resolutiondate","assignee","reporter"]
-PROJ_COLS  = ["id","key","name","projectTypeKey","lead"]
+# --------------------------------------------------------------------
+# Utils
+# --------------------------------------------------------------------
+def _pct(a, b):
+    return (float(a) / float(b) * 100.0) if (b not in (0, None, np.nan)) else 0.0
 
-# Zephyr (opcionais)
-Z_CASES_COLS = ["key","name","status","automated","testType","labels","created","projectKey"]
-Z_EXEC_COLS  = ["executionKey","testKey","status","automated","testType","labels","executedOn","projectKey","issueKey"]
+def _project_from_key(s: pd.Series) -> pd.Series:
+    return s.astype(str).str.extract(r"^([A-Z0-9_]+)-", expand=False).fillna("")
 
-# ---------- utils ----------
-def safe_read_csv(name: str, columns=None) -> pd.DataFrame:
-    p = DATA / name
-    if not p.exists() or p.stat().st_size == 0:
-        return pd.DataFrame(columns=columns or [])
-    try:
-        df = pd.read_csv(p)
-        if columns:
-            for c in columns:
-                if c not in df.columns:
-                    df[c] = pd.NA
-            df = df[[c for c in columns if c in df.columns]]
-        return df
-    except Exception:
-        return pd.DataFrame(columns=columns or [])
-
-def key_project_prefix(key: str) -> str:
-    if isinstance(key, str) and "-" in key:
-        return key.split("-")[0]
-    return ""
-
-def to_month(dt_str):
-    if pd.isna(dt_str): return None
-    try:
-        return pd.to_datetime(dt_str).strftime("%Y-%m")
-    except Exception:
-        return None
-
-def pct(a, b):
-    return float(a) / float(b) * 100 if b not in (0, None, np.nan) else 0.0
-
-# ---------- página ----------
+# --------------------------------------------------------------------
+# Página
+# --------------------------------------------------------------------
 def pagina_dashboard_coverage_and_run():
     try:
         st.set_page_config(page_title="Coverage and Run", layout="wide")
     except Exception:
         pass
 
-    # ---- ESTILO (cards/métricas como suas telas anteriores)
+    # ---- ESTILO (mesmo look das outras páginas)
     st.markdown("""
     <style>
       .stButton > button {
@@ -64,10 +54,7 @@ def pagina_dashboard_coverage_and_run():
         text-align: center; font-size: 12px; font-weight: 700; min-width: 0;
       }
       .stButton > button:hover { border-color: rgba(186,85,211,.6); background: rgba(186,85,211,.10); }
-      .score-selected > button { outline: 2px solid #ba55d3 !important; background: rgba(186,85,211,.16) !important; border-color: transparent !important; }
       .block-container { padding-left: 1rem; padding-right: 1rem; }
-
-      /* Métricas */
       [data-testid="stMetric"] { padding: .4rem .6rem; border-radius: 10px; background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.08); }
       [data-testid="stMetricLabel"] { font-size: 12px; opacity: .85; letter-spacing: .2px; }
       [data-testid="stMetricValue"] { font-weight: 800; font-size: 28px; line-height: 1.05; }
@@ -76,50 +63,90 @@ def pagina_dashboard_coverage_and_run():
 
     st.markdown("### Coverage and Run")
 
-    # ----- Carrega bases
-    df_story  = safe_read_csv("jira_issues_story_latest.csv",  ISSUE_COLS)
-    df_epic   = safe_read_csv("jira_issues_epic_latest.csv",   ISSUE_COLS)
-    df_bug    = safe_read_csv("jira_issues_bug_latest.csv",    ISSUE_COLS)
-    df_subbug = safe_read_csv("jira_issues_subbug_latest.csv", ISSUE_COLS)
-    df_proj   = safe_read_csv("jira_projetos_latest.csv",      PROJ_COLS)
-    df_zc     = safe_read_csv("zephyr_testcases_latest.csv",   Z_CASES_COLS)
-    df_ze     = safe_read_csv("zephyr_executions_latest.csv",  Z_EXEC_COLS)
+    # ---------------- Carregamento normalizado (cache por mtime) ----------------
+    df_story_raw  = safe_read_csv(JIRA_STORY)
+    df_epic_raw   = safe_read_csv(JIRA_EPIC)
+    df_bug        = normalize_bugs(safe_read_csv(JIRA_BUG))
+    df_subbug     = normalize_bugs(safe_read_csv(JIRA_SUBBUG))
+    df_proj       = safe_read_csv(JIRA_PROJ)
 
-    # ----- Colunas auxiliares
-    for d in (df_story, df_epic, df_bug, df_subbug):
-        if "projectKey" not in d.columns:
-            d["projectKey"] = d["key"].apply(key_project_prefix)
+    df_zc         = safe_read_csv(ZEPHYR_TC)  # test cases (para backlog/created/automated)
+    df_ze         = ensure_project_on_executions(
+                        safe_read_csv([ZEPHYR_EXEC_MAIN, ZEPHYR_EXEC_FALLBACK])
+                    )  # execuções (month/year/projectKey)
+
+    # Issues normalizadas (id/key/projectKey/created/month/year)
+    df_story = normalize_issue_df(df_story_raw)
+    df_epic  = normalize_issue_df(df_epic_raw)
+
+    # Deriva datas prontas (uma vez só)
+    for d in (df_story, df_epic):
         if "created" in d.columns:
-            d["created_dt"] = pd.to_datetime(d["created"], errors="coerce")
-            d["created_date"] = d["created_dt"].dt.date
-        d["month"] = d["created"].apply(to_month)
+            d["created_date"] = pd.to_datetime(d["created"], errors="coerce", utc=True).dt.date
+        else:
+            d["created_date"] = pd.NaT
 
+    # Zephyr executions: já tem month/year/projectKey; compute executed_date
     if not df_ze.empty:
-        if "projectKey" not in df_ze.columns:
-            df_ze["projectKey"] = df_ze["issueKey"].apply(key_project_prefix)
-        df_ze["executed_dt"] = pd.to_datetime(df_ze["executedOn"], errors="coerce")
-        df_ze["executed_date"] = df_ze["executed_dt"].dt.date
-        df_ze["month"] = df_ze["executed_dt"].dt.strftime("%Y-%m")
+        exec_col = "actualEndDate" if "actualEndDate" in df_ze.columns else ("executedOn" if "executedOn" in df_ze.columns else None)
+        if exec_col:
+            edt = pd.to_datetime(df_ze[exec_col], errors="coerce", utc=True)
+            df_ze["executed_date"] = edt.dt.date
+        else:
+            df_ze["executed_date"] = pd.NaT
 
+    # Zephyr cases: projectKey + created_date/month/year (se existir)
     if not df_zc.empty:
         if "projectKey" not in df_zc.columns:
-            df_zc["projectKey"] = df_zc.get("key","").apply(key_project_prefix)
+            if "key" in df_zc.columns:
+                df_zc["projectKey"] = _project_from_key(df_zc["key"])
+            else:
+                df_zc["projectKey"] = ""
         if "created" in df_zc.columns:
-            df_zc["created_dt"] = pd.to_datetime(df_zc["created"], errors="coerce")
-            df_zc["created_date"] = df_zc["created_dt"].dt.date
+            cdt = pd.to_datetime(df_zc["created"], errors="coerce", utc=True)
+            df_zc["created_date"] = cdt.dt.date
+            df_zc["month"]        = cdt.dt.strftime("%Y-%m")
+            df_zc["year"]         = cdt.dt.year.astype("Int64")
+        else:
+            df_zc["created_date"] = pd.NaT
+            if "month" not in df_zc.columns: df_zc["month"] = pd.NA
+            if "year"  not in df_zc.columns: df_zc["year"]  = pd.NA
+        df_zc["projectKey"] = df_zc["projectKey"].astype("category")
 
-    # ----- Filtros: intervalo (calendário + slider) e Domain
-    all_exec_dates = df_ze["executed_date"].dropna().tolist() if "executed_date" in df_ze.columns else []
-    if all_exec_dates:
-        min_d, max_d = min(all_exec_dates), max(all_exec_dates)
+    # ---------------- Filtros topo (Domain/Período + Atualizado) ----------------
+    # Domains
+    if not df_proj.empty and {"name","key"}.issubset(df_proj.columns):
+        projects = ["Todos"] + sorted(df_proj["key"].dropna().astype(str).unique().tolist())
+    else:
+        pref = pd.concat(
+            [
+                s for s in [
+                    df_story["projectKey"], df_epic["projectKey"],
+                    df_ze.get("projectKey", pd.Series(dtype="object")),
+                    df_zc.get("projectKey", pd.Series(dtype="object")),
+                ] if not s.empty
+            ],
+            ignore_index=True
+        )
+        projects = ["Todos"] + sorted([p for p in pref.dropna().astype(str).unique().tolist() if p])
+
+    # Período baseado nas execuções (fallback: created de story)
+    if not df_ze.empty and "executed_date" in df_ze.columns:
+        all_dates = df_ze["executed_date"].dropna().tolist()
+    elif not df_story.empty:
+        all_dates = df_story["created_date"].dropna().tolist()
+    else:
+        all_dates = []
+
+    if all_dates:
+        min_d, max_d = min(all_dates), max(all_dates)
     else:
         min_d, max_d = date.today() - timedelta(days=180), date.today()
 
-    # 1) Fonte única do intervalo
-    if "periodo_master" not in st.session_state:
-        st.session_state["periodo_master"] = (min_d, max_d)
+    # Fonte única de período em session_state
+    if "periodo_master_car" not in st.session_state:
+        st.session_state["periodo_master_car"] = (min_d, max_d)
 
-    # 2) Garantia: os dois widget-keys existem e SEMPRE são tuplas (início, fim)
     def _ensure_range_key(key: str, fallback: tuple[date, date]):
         v = st.session_state.get(key, None)
         if isinstance(v, (list, tuple)) and len(v) == 2:
@@ -129,36 +156,25 @@ def pagina_dashboard_coverage_and_run():
         else:
             st.session_state[key] = fallback
 
-    _ensure_range_key("intervalo_data",   st.session_state["periodo_master"])
-    _ensure_range_key("intervalo_slider", st.session_state["periodo_master"])
+    _ensure_range_key("intervalo_data_car",   st.session_state["periodo_master_car"])
+    _ensure_range_key("intervalo_slider_car", st.session_state["periodo_master_car"])
 
-    # 3) Callbacks de sincronização (bidirecional), SEM st.rerun()
     def _on_calendar_change():
-        # calendário venceu → atualiza master e o slider
-        st.session_state["periodo_master"] = st.session_state["intervalo_data"]
-        st.session_state["intervalo_slider"] = st.session_state["intervalo_data"]
+        st.session_state["periodo_master_car"] = st.session_state["intervalo_data_car"]
+        st.session_state["intervalo_slider_car"] = st.session_state["intervalo_data_car"]
 
     def _on_slider_change():
-        # slider venceu → atualiza master e o calendário
-        st.session_state["periodo_master"] = st.session_state["intervalo_slider"]
-        st.session_state["intervalo_data"] = st.session_state["intervalo_slider"]
+        st.session_state["periodo_master_car"] = st.session_state["intervalo_slider_car"]
+        st.session_state["intervalo_data_car"] = st.session_state["intervalo_slider_car"]
 
-    # 4) Linha de filtros (Domain + intervalo)
     c0, c1, c2 = st.columns([0.50, 0.30, 0.20])
     with c0:
-        if not df_proj.empty:
-            projects = ["Todos"] + sorted(df_proj["key"].dropna().unique().tolist())
-        else:
-            pref = []
-            for d in (df_story, df_epic, df_ze):
-                if not d.empty and "projectKey" in d.columns:
-                    pref += d["projectKey"].dropna().tolist()
-            projects = ["Todos"] + sorted(list(set(pref)))
         sel_project = st.selectbox("Domain", options=projects, index=0)
     with c1:
         st.caption("")
     with c2:
-        st.caption(datetime.now().strftime("Atualizado: %d/%m/%Y %H:%M"))
+        dt = read_last_update(KPI_LASTUPDATE)
+        if dt: st.caption(f"Atualizado: {dt}")
 
     c0, c1, c2 = st.columns([0.50, 0.30, 0.20])
     with c0:
@@ -166,18 +182,16 @@ def pagina_dashboard_coverage_and_run():
         with ca:
             st.date_input(
                 "Date (calendário)",
-                key="intervalo_data",
-                min_value=min_d,
-                max_value=max_d,
+                key="intervalo_data_car",
+                min_value=min_d, max_value=max_d,
                 format="DD/MM/YYYY",
                 on_change=_on_calendar_change,
             )
         with cb:
             st.slider(
                 "Date (slider)",
-                key="intervalo_slider",
-                min_value=min_d,
-                max_value=max_d,
+                key="intervalo_slider_car",
+                min_value=min_d, max_value=max_d,
                 format="DD/MM/YYYY",
                 on_change=_on_slider_change,
             )
@@ -186,42 +200,86 @@ def pagina_dashboard_coverage_and_run():
     with c2:
         st.caption("")
 
-    # 5) Usa a fonte única como período final aplicado
-    d_start, d_end = st.session_state["periodo_master"]
+    d_start, d_end = st.session_state["periodo_master_car"]
 
-    # ----- aplica filtros
-    def f_proj(df, col="projectKey"):
-        if df.empty: return df
-        return df if sel_project == "Todos" else df[df[col] == sel_project]
+    # ---------------- Aplicar filtros (Domain + Período) ----------------
+    def _f_proj(df: pd.DataFrame, col="projectKey") -> pd.DataFrame:
+        if df.empty or sel_project == "Todos": return df
+        if col in df.columns:
+            return df[df[col].astype(str) == str(sel_project)].copy()
+        return df
+    
+    def _f_period_created(df: pd.DataFrame) -> pd.DataFrame:
+        """Filtra por período usando created_date, tolerando datetime64[ns] ou date."""
+        if df.empty or "created_date" not in df.columns:
+            return df
+        s = df["created_date"]
 
-    def f_period_exec(df):
-        if df.empty or "executed_date" not in df.columns: return df
-        return df[(df["executed_date"] >= d_start) & (df["executed_date"] <= d_end)].copy()
+        # Caso a coluna esteja como datetime64[ns] (ou com tz)
+        if np.issubdtype(s.dtype, np.datetime64):
+            start_ts = pd.to_datetime(d_start)   # date -> Timestamp
+            end_ts   = pd.to_datetime(d_end)
+            mask = s.between(start_ts, end_ts, inclusive="both")
+            return df[mask].copy()
 
-    def f_period_created(df):
-        if df.empty or "created_date" not in df.columns: return df
-        return df[(df["created_date"] >= d_start) & (df["created_date"] <= d_end)].copy()
+        # Caso esteja como objetos date/strings
+        try:
+            mask = (s >= d_start) & (s <= d_end)
+            return df[mask].copy()
+        except Exception:
+            # último recurso: normaliza para date uma única vez
+            s2 = pd.to_datetime(s, errors="coerce").dt.date
+            df2 = df.copy()
+            df2["created_date"] = s2
+            mask = (s2 >= d_start) & (s2 <= d_end)
+            return df2[mask].copy()
+        
+    def _f_period_exec(df: pd.DataFrame) -> pd.DataFrame:
+        """Filtra por período usando executed_date, tolerando datetime64[ns] ou date."""
+        if df.empty or "executed_date" not in df.columns:
+            return df
+        s = df["executed_date"]
 
-    f_story  = f_proj(f_period_created(df_story))
-    f_epic   = f_proj(f_period_created(df_epic))
-    f_zc     = f_proj(f_period_created(df_zc))
-    f_ze     = f_proj(f_period_exec(df_ze))
+        if np.issubdtype(s.dtype, np.datetime64):
+            start_ts = pd.to_datetime(d_start)
+            end_ts   = pd.to_datetime(d_end)
+            mask = s.between(start_ts, end_ts, inclusive="both")
+            return df[mask].copy()
 
-    # ----- Cards
+        try:
+            mask = (s >= d_start) & (s <= d_end)
+            return df[mask].copy()
+        except Exception:
+            s2 = pd.to_datetime(s, errors="coerce").dt.date
+            df2 = df.copy()
+            df2["executed_date"] = s2
+            mask = (s2 >= d_start) & (s2 <= d_end)
+            return df2[mask].copy()
+
+
+    f_story = _f_proj(_f_period_created(df_story))
+    f_epic  = _f_proj(_f_period_created(df_epic))
+    f_zc    = _f_proj(_f_period_created(df_zc))
+    f_ze    = _f_proj(_f_period_exec(df_ze))
+
+    # ---------------- Cards ----------------
     col1 = st.columns(4)
     with col1[0]:
         if not df_proj.empty:
-            domains = len(df_proj if sel_project=="Todos" else df_proj[df_proj["key"]==sel_project])
+            domains = len(df_proj if sel_project == "Todos" else df_proj[df_proj["key"].astype(str) == str(sel_project)])
         else:
             domains = len(set([*f_story["projectKey"].dropna().unique(), *f_epic["projectKey"].dropna().unique()]))
-        st.metric("Domain", domains or 0)
+        st.metric("Domain", int(domains) if pd.notna(domains) else 0)
+
     with col1[1]:
         st.metric("QTD Story", int(f_story.shape[0]))
+
     with col1[2]:
         st.metric("QTD Epic", int(f_epic.shape[0]))
+
     with col1[3]:
         num = int(f_story.shape[0]); den = num + int(f_epic.shape[0])
-        st.metric("% Story Coverage", f"{pct(num,den):.2f}%")
+        st.metric("% Story Coverage", f"{_pct(num, den):.2f}%")
 
     col2 = st.columns(4)
     with col2[0]:
@@ -230,37 +288,40 @@ def pagina_dashboard_coverage_and_run():
         else:
             man = 0
         st.metric("Manual Test Run", int(man))
+
     with col2[1]:
         if not f_ze.empty and "automated" in f_ze.columns:
             aut = f_ze["automated"].astype(str).str.lower().isin(["1","true","yes"]).sum()
         else:
             aut = 0
         st.metric("Automated Test Run", int(aut))
+
     with col2[2]:
-        if not f_ze.empty:
+        if not f_ze.empty and {"month","issueKey"}.issubset(f_ze.columns):
             cycles = f_ze.groupby(["month","issueKey"]).ngroups
         else:
             cycles = 0
         st.metric("Test Cycle", int(cycles))
+
     with col2[3]:
         if not f_ze.empty and "issueKey" in f_ze.columns:
             by_issue = f_ze.dropna(subset=["issueKey"]).groupby("issueKey").size()
             avg_issue = by_issue.mean() if not by_issue.empty else 0.0
         else:
             avg_issue = 0.0
-        st.metric("Test average per issue", f"{avg_issue:.2f}")
+        st.metric("Test average per issue", f"{float(avg_issue):.2f}")
 
     st.markdown("---")
 
-    # ---------- Automated backlog
+    # ---------------- Automated backlog ----------------
     st.markdown("#### Automated Backlog")
     if f_zc.empty:
         st.info("Sem dados de casos de teste (Zephyr Test Cases).")
     else:
-        auto_mask = f_zc["automated"].astype(str).str.lower().isin(["1","true","yes"])
+        auto_mask = f_zc.get("automated", pd.Series(dtype="object")).astype(str).str.lower().isin(["1","true","yes"])
         n_auto = int(auto_mask.sum())
         n_total = int(len(f_zc))
-        n_not_app = int((f_zc.get("status","").astype(str).str.contains("not applic", case=False)).sum()) if "status" in f_zc.columns else 0
+        n_not_app = int((f_zc.get("status", pd.Series(dtype="object")).astype(str).str.contains("not applic", case=False)).sum())
         n_backlog = max(0, n_total - n_auto - n_not_app)
 
         df_auto_stack = pd.DataFrame({
@@ -276,7 +337,7 @@ def pagina_dashboard_coverage_and_run():
 
     cA, cB, cC = st.columns(3)
 
-    # ---------- Regressive × Others
+    # ---------------- Regressive × Others ----------------
     with cA:
         st.markdown("#### Regressive × Others (Test type)")
         if f_ze.empty or "testType" not in f_ze.columns:
@@ -294,7 +355,7 @@ def pagina_dashboard_coverage_and_run():
             ).properties(height=220)
             st.altair_chart(ch, use_container_width=True)
 
-    # ---------- Positive × Negative
+    # ---------------- Positive × Negative ----------------
     with cB:
         st.markdown("#### Positive × Negative (labels/testType)")
         if f_ze.empty:
@@ -317,7 +378,7 @@ def pagina_dashboard_coverage_and_run():
             ).properties(height=220)
             st.altair_chart(ch, use_container_width=True)
 
-    # ---------- Automated run × Manual run
+    # ---------------- Automated run × Manual run ----------------
     with cC:
         st.markdown("#### Automated run × Manual run")
         if f_ze.empty or "automated" not in f_ze.columns:
@@ -337,17 +398,17 @@ def pagina_dashboard_coverage_and_run():
 
     st.markdown("---")
 
-    # ---------- Test evolution (linha mensal)
+    # ---------------- Test evolution (linha mensal) ----------------
     st.markdown("#### Test evolution (mensal)")
     if f_ze.empty:
         st.info("Sem execuções no período selecionado.")
     else:
         z = f_ze.copy()
-        z["is_auto"] = z["automated"].astype(str).str.lower().isin(["1","true","yes"]) if "automated" in z.columns else False
+        z["is_auto"] = z.get("automated", pd.Series(dtype="object")).astype(str).str.lower().isin(["1","true","yes"])
         df_month = z.groupby(["month","is_auto"]).size().reset_index(name="runs")
         df_month["tipo"] = df_month["is_auto"].map({True:"Automated Run", False:"Manual Run"})
         try:
-            df_month["month_dt"] = pd.to_datetime(df_month["month"] + "-01")
+            df_month["month_dt"] = pd.to_datetime(df_month["month"] + "-01", errors="coerce")
             df_month = df_month.sort_values("month_dt")
         except Exception:
             pass
@@ -358,14 +419,14 @@ def pagina_dashboard_coverage_and_run():
         ).properties(height=300)
         st.altair_chart(ch, use_container_width=True)
 
-    # ---------- Automation in regressive
+    # ---------------- Automation in regressive ----------------
     st.markdown("#### Automation in regressive")
     if f_ze.empty or "testType" not in f_ze.columns:
         st.info("Sem dados suficientes para regressão.")
     else:
         z = f_ze.copy()
         reg = z["testType"].astype(str).str.lower().str.contains("regress")
-        is_auto = z["automated"].astype(str).str.lower().isin(["1","true","yes"]) if "automated" in df_ze.columns else False
+        is_auto = z.get("automated", pd.Series(dtype="object")).astype(str).str.lower().isin(["1","true","yes"])
         df_reg = pd.DataFrame({
             "status": ["Automated", "Manual"],
             "runs": [int((reg & is_auto).sum()), int((reg & ~is_auto).sum())]
@@ -376,6 +437,7 @@ def pagina_dashboard_coverage_and_run():
             color=alt.Color("status:N", legend=None)
         ).properties(height=260)
         st.altair_chart(ch, use_container_width=True)
+
 
 # debug isolado
 if __name__ == "__main__":

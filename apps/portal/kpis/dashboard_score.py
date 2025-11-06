@@ -4,39 +4,25 @@ import pandas as pd
 import numpy as np
 import altair as alt
 
-# --------------------------------------------------------------------
-# Compatibilidade de imports (analytics fora ou dentro de kpis)
-# --------------------------------------------------------------------
-import os, sys
-_HERE = os.path.abspath(os.path.dirname(__file__))           # .../apps/portal/kpis
-_APPS_DIR = os.path.abspath(os.path.join(_HERE, "..", "..")) # .../apps
-if _APPS_DIR not in sys.path:
-    sys.path.insert(0, _APPS_DIR)
-
-try:
-    # NOVO layout: apps/analytics/*
-    from analytics.constants import (
-        KPI_LASTUPDATE,
-        JIRA_FUNC, JIRA_EPIC, JIRA_STORY, JIRA_BUG, JIRA_SUBBUG, JIRA_PROJ,
-        ZEPHYR_TC, ZEPHYR_EXEC_MAIN, ZEPHYR_EXEC_FALLBACK,
-    )
-    from analytics.data_access import safe_read_csv, read_last_update
-    from analytics.transformers import (
-        normalize_issue_df, normalize_bugs, ensure_project_on_executions,
-        extract_years_from_dfs, apply_year_filter,
-    )
-except Exception:
-    # Layout antigo: kpis/analytics/*
-    from .analytics.constants import (
-        KPI_LASTUPDATE,
-        JIRA_FUNC, JIRA_EPIC, JIRA_STORY, JIRA_BUG, JIRA_SUBBUG, JIRA_PROJ,
-        ZEPHYR_TC, ZEPHYR_EXEC_MAIN, ZEPHYR_EXEC_FALLBACK,
-    )
-    from .analytics.data_access import safe_read_csv, read_last_update
-    from .analytics.transformers import (
-        normalize_issue_df, normalize_bugs, ensure_project_on_executions,
-        extract_years_from_dfs, apply_year_filter,
-    )
+from .analytics.constants import (
+    WARN_RATIO, KPI_LASTUPDATE,
+    JIRA_FUNC, JIRA_EPIC, JIRA_STORY, JIRA_BUG, JIRA_SUBBUG, JIRA_PROJ,
+    ZEPHYR_TC, ZEPHYR_EXEC_MAIN, ZEPHYR_EXEC_FALLBACK,
+    ZEPHYR_CYCLE_MAIN, ZEPHYR_CYCLE_FALLBACK,
+    KPI_TARGETS
+)
+from .analytics.data_access import safe_read_csv, read_last_update
+from .analytics.transformers import (
+    normalize_issue_df, normalize_bugs, extract_linked_issue_ids, extract_years_from_dfs, apply_year_filter,
+    ensure_project_on_executions, apply_project_bugs
+)
+from .analytics.metrics import (
+    get_target,
+    kpi_coverage_now, kpi_test_avg_per_issue_now, kpi_auto_runs_now,
+    kpi_auto_reg_now, kpi_test_reg_now, kpi_negative_now, avg_bug_days,
+    monthly_series_coverage, monthly_series_test_avg, monthly_series_auto_runs,
+    monthly_series_auto_reg, monthly_series_test_reg, monthly_series_negative
+)
 
 # --------------------------------------------------------------------
 # Tabela de limiares → nota base (1–4) conforme sua imagem
