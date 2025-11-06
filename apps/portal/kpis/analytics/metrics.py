@@ -150,13 +150,18 @@ def kpi_negative_now(df_zc: pd.DataFrame, issue_ids_sel: set[int] | None) -> flo
 def avg_bug_days(df_bug_f: pd.DataFrame, df_subbug_f: pd.DataFrame) -> float:
     if df_bug_f.empty and df_subbug_f.empty:
         return 0.0
-    d = pd.concat([df_bug_f, df_subbug_f], ignore_index=True) if not (df_bug_f.empty or df_subbug_f.empty) else (df_bug_f if df_subbug_f.empty else df_subbug_f)
-    created_candidates = ["created", "fields.created", "dta_criacao", "createdDate"]
-    resolved_candidates = ["resolutiondate", "fields.resolutiondate", "dta_resolutiondate", "dta_resolucao", "resolved"]
-    created_s = next((d[c] for c in created_candidates if c in d.columns), pd.Series(dtype="object"))
-    resolved_s = next((d[c] for c in resolved_candidates if c in d.columns), pd.Series(dtype="object"))
-    c = pd.to_datetime(created_s, errors="coerce", utc=True)
-    r = pd.to_datetime(resolved_s, errors="coerce", utc=True)
+    d = (pd.concat([df_bug_f, df_subbug_f], ignore_index=True)
+         if not (df_bug_f.empty or df_subbug_f.empty)
+         else (df_bug_f if df_subbug_f.empty else df_subbug_f))
+
+    if "created_dt" in d.columns and "resolved_dt" in d.columns:
+        c = d["created_dt"]; r = d["resolved_dt"]
+    else:
+        created_candidates  = ["created","fields.created","dta_criacao","createdDate"]
+        resolved_candidates = ["resolutiondate","fields.resolutiondate","dta_resolutiondate","dta_resolucao","resolved"]
+        c = pd.to_datetime(next((d[c] for c in created_candidates  if c in d.columns), pd.Series(dtype="object")), errors="coerce", utc=True)
+        r = pd.to_datetime(next((d[c] for c in resolved_candidates if c in d.columns), pd.Series(dtype="object")), errors="coerce", utc=True)
+
     valid = c.notna() & r.notna()
     if not valid.any():
         return 0.0

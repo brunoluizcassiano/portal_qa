@@ -28,18 +28,29 @@ def pct(a, b):
     return (float(a) / float(b) * 100.0) if (b not in (0, None, np.nan)) else 0.0
 
 def normalize_issue_df(df: pd.DataFrame) -> pd.DataFrame:
-    """Normaliza Issues JIRA para [id, key, projectKey, created, month]."""
+    """Normaliza Issues JIRA para [id, key, projectKey, created, month, year]."""
     if df.empty:
-        return pd.DataFrame(columns=["id", "key", "projectKey", "created", "month"])
+        return pd.DataFrame(columns=["id", "key", "projectKey", "created", "month", "year"])
     out = pd.DataFrame()
     out["id"] = pd.to_numeric(first_non_null_col(df, ["id"]), errors="coerce").astype("Int64")
     out["key"] = first_non_null_col(df, ["key"]).astype(str)
-    out["projectKey"] = df["projectKey"].astype(str) if "projectKey" in df.columns else out["key"].apply(key_project_prefix)
+
+    if "projectKey" in df.columns:
+        out["projectKey"] = df["projectKey"].astype(str)
+    else:
+        out["projectKey"] = out["key"].apply(key_project_prefix)
+
     created = first_non_null_col(df, ["created", "fields.created"])
-    out["created"] = pd.to_datetime(created, errors="coerce")
+    out["created"] = pd.to_datetime(created, errors="coerce", utc=True)
     out["month"] = out["created"].dt.strftime("%Y-%m")
+    out["year"]  = out["created"].dt.year.astype("Int64")
+
+    # para filtrar mais rápido
+    out["projectKey"] = out["projectKey"].astype("category")
+
     out = out.dropna(subset=["id"]).drop_duplicates(subset=["id"])
     return out
+
 
 def _split_ids_to_ints(val) -> list[int]:
     """Split de '123;456' ou '123,456' em ints; ignora ruído."""
@@ -100,21 +111,23 @@ def extract_years_from_dfs(dfs: list[pd.DataFrame]) -> list[int]:
     return sorted(years)
 
 def apply_year_filter(df: pd.DataFrame, sel_year: str) -> pd.DataFrame:
+    """Filtra por ano usando coluna 'year' se houver; caso contrário, tenta criar UMA vez."""
     if df.empty or sel_year == "Todos":
         return df
     year = int(sel_year)
+    if "year" in df.columns:
+        return df[df["year"] == year].copy()
+
+    # fallback: cria 'year' a partir de alguma coluna temporal, mas grava na cópia
     candidates = [
-        "created", "fields.created", "resolutiondate", "fields.resolutiondate", "month",
+        "created", "fields.created", "resolutiondate", "fields.resolutiondate",
         "dta_criacao", "dta_resolutiondate", "actualEndDate", "executedOn", "createdOn"
     ]
     df2 = df.copy()
     for c in candidates:
         if c in df2.columns:
-            if c == "month":
-                m = df2["month"].astype(str).str.slice(0, 4)
-                return df2[m == str(year)]
-            years = pd.to_datetime(df2[c], errors="coerce").dt.year.astype("Int64")
-            return df2[years == year]
+            df2["year"] = pd.to_datetime(df2[c], errors="coerce", utc=True).dt.year.astype("Int64")
+            return df2[df2["year"] == year].copy()
     return df2
 
 def apply_project_bugs(df: pd.DataFrame, project_key: str | None) -> pd.DataFrame:
@@ -129,26 +142,52 @@ def apply_project_bugs(df: pd.DataFrame, project_key: str | None) -> pd.DataFram
     return df
 
 def ensure_project_on_executions(df: pd.DataFrame) -> pd.DataFrame:
-    """Garante coluna projectKey nas execuções Zephyr."""
+    """Garante projectKey + month + year nas execuções Zephyr."""
     if df.empty:
         return df.copy()
     out = df.copy()
+
+    # projectKey por diversas origens
     if "projectKey" in out.columns:
         out["projectKey"] = out["projectKey"].astype(str)
-    if "projectKey" not in out.columns or out["projectKey"].isna().all():
+    else:
         if "issueKey" in out.columns:
             out["projectKey"] = out["issueKey"].astype(str).apply(_extract_proj_from_text)
-    if "projectKey" not in out.columns or out["projectKey"].replace("", pd.NA).isna().all():
-        for c in ["testCase.key", "testcase.key", "testCaseKey"]:
-            if c in out.columns:
-                out["projectKey"] = out[c].astype(str).apply(_extract_proj_from_text)
-                break
-    if "projectKey" not in out.columns:
-        out["projectKey"] = ""
-    exec_date_col = ("actualEndDate" if "actualEndDate" in out.columns
-                     else ("executedOn" if "executedOn" in out.columns else None))
-    out["month"] = out[exec_date_col].apply(to_month_from_str) if exec_date_col else pd.NA
+        elif any(c in out.columns for c in ["testCase.key","testcase.key","testCaseKey"]):
+            c = next(c for c in ["testCase.key","testcase.key","testCaseKey"] if c in out.columns)
+            out["projectKey"] = out[c].astype(str).apply(_extract_proj_from_text)
+        else:
+            out["projectKey"] = ""
+
+    # data de execução
+    exec_col = "actualEndDate" if "actualEndDate" in out.columns else ("executedOn" if "executedOn" in out.columns else None)
+    if exec_col:
+        exec_dt = pd.to_datetime(out[exec_col], errors="coerce", utc=True)
+        out["month"] = exec_dt.dt.strftime("%Y-%m")
+        out["year"]  = exec_dt.dt.year.astype("Int64")
+    else:
+        out["month"] = pd.NA
+        out["year"]  = pd.NA
+
+    out["projectKey"] = out["projectKey"].astype("category")
     return out
+
+def normalize_bugs(df: pd.DataFrame) -> pd.DataFrame:
+    """Padroniza DF de bugs/sub-bugs com created_dt/resolved_dt/year."""
+    if df.empty:
+        return df.copy()
+    out = df.copy()
+    created_candidates  = ["created", "fields.created", "dta_criacao", "createdDate"]
+    resolved_candidates = ["resolutiondate", "fields.resolutiondate", "dta_resolutiondate", "dta_resolucao", "resolved"]
+
+    created_s  = next((out[c] for c in created_candidates  if c in out.columns), pd.Series(dtype="object"))
+    resolved_s = next((out[c] for c in resolved_candidates if c in out.columns), pd.Series(dtype="object"))
+
+    out["created_dt"]  = pd.to_datetime(created_s,  errors="coerce", utc=True)
+    out["resolved_dt"] = pd.to_datetime(resolved_s, errors="coerce", utc=True)
+    out["year"]        = out["created_dt"].dt.year.astype("Int64")
+    return out
+
 
 def _extract_proj_from_text(txt: str) -> str:
     if not isinstance(txt, str):

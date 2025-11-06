@@ -3,19 +3,19 @@ import pandas as pd
 import altair as alt
 from datetime import datetime
 
-from .constants import (
+from .analytics.constants import (
     WARN_RATIO, KPI_LASTUPDATE,
     JIRA_FUNC, JIRA_EPIC, JIRA_STORY, JIRA_BUG, JIRA_SUBBUG, JIRA_PROJ,
     ZEPHYR_TC, ZEPHYR_EXEC_MAIN, ZEPHYR_EXEC_FALLBACK,
     ZEPHYR_CYCLE_MAIN, ZEPHYR_CYCLE_FALLBACK,
     KPI_TARGETS
 )
-from .data_access import safe_read_csv, read_last_update
-from .transformers import (
-    normalize_issue_df, extract_linked_issue_ids, extract_years_from_dfs, apply_year_filter,
+from .analytics.data_access import safe_read_csv, read_last_update
+from .analytics.transformers import (
+    normalize_issue_df, normalize_bugs, extract_linked_issue_ids, extract_years_from_dfs, apply_year_filter,
     ensure_project_on_executions, apply_project_bugs
 )
-from .metrics import (
+from .analytics.metrics import (
     get_target,
     kpi_coverage_now, kpi_test_avg_per_issue_now, kpi_auto_runs_now,
     kpi_auto_reg_now, kpi_test_reg_now, kpi_negative_now, avg_bug_days,
@@ -60,12 +60,14 @@ def pagina_dashboard_kpi():
     df_func_raw = safe_read_csv(JIRA_FUNC)
     df_epic_raw = safe_read_csv(JIRA_EPIC)
     df_story_raw = safe_read_csv(JIRA_STORY)
-    df_bug      = safe_read_csv(JIRA_BUG)
-    df_subbug   = safe_read_csv(JIRA_SUBBUG)
+    df_bug      = normalize_bugs(safe_read_csv(JIRA_BUG))
+    df_subbug   = normalize_bugs(safe_read_csv(JIRA_SUBBUG))
     df_proj     = safe_read_csv(JIRA_PROJ)
 
     df_zc       = safe_read_csv(ZEPHYR_TC)
-    df_ze       = safe_read_csv([ZEPHYR_EXEC_MAIN, ZEPHYR_EXEC_FALLBACK])
+    df_ze       = ensure_project_on_executions(
+                 safe_read_csv([ZEPHYR_EXEC_MAIN, ZEPHYR_EXEC_FALLBACK])
+             )
     df_cyc      = safe_read_csv([ZEPHYR_CYCLE_MAIN, ZEPHYR_CYCLE_FALLBACK])
 
     df_targets  = safe_read_csv(KPI_TARGETS, columns=["kpi", "projectKey", "year", "target", "goal"])
