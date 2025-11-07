@@ -463,7 +463,6 @@ def pagina_dashboard_coverage_and_run():
     st.markdown("---")
 
     # ---------------- Automated Backlog (mantido) ----------------
-        # ---------------- Automated Backlog (Waterfall + composição 100%) ----------------
     st.markdown("#### Automated Backlog")
 
     if f_zc.empty:
@@ -564,18 +563,58 @@ def pagina_dashboard_coverage_and_run():
     # ---------------- Gráficos (mantidos) ----------------
     cA, cB, cC = st.columns(3)
     with cA:
+        # ---------------- Regressive × Others (Test type) ----------------
         st.markdown("#### Regressive × Others (Test type)")
-        if f_ze.empty or "testType" not in f_ze.columns:
-            st.info("Sem dados suficientes para agrupar por 'testType'.")
+
+        if f_zc.empty:
+            st.info("Sem dados de casos de teste (Zephyr Test Cases).")
         else:
-            z = f_ze.copy()
-            z["grp"] = np.where(z["testType"].astype(str).str.lower().str.contains("regress"), "Regressive", "Others")
-            df_grp = z.groupby("grp").size().reset_index(name="runs")
-            ch = alt.Chart(df_grp).mark_bar().encode(
-                x=alt.X("grp:N", title=None), y=alt.Y("runs:Q", title="Runs"),
-                color=alt.Color("grp:N", legend=None)
-            ).properties(height=220)
-            st.altair_chart(ch, use_container_width=True)
+            # procura a coluna "Custom Fields.Test Type" considerando variações
+            tt_col = _find_col_norm(
+                f_zc,
+                ["custom fields.test type", "customfields.test type", "test type"]
+            )
+
+            if not tt_col:
+                st.info("Coluna 'Custom Fields.Test Type' não encontrada nos Test Cases.")
+            else:
+                s = (
+                    f_zc[tt_col]
+                    .astype(str)
+                    .str.replace("\xa0", " ")
+                    .str.strip()
+                    .str.lower()
+                )
+
+                # Regression x qualquer outro valor
+                is_reg = s.str.contains(r"\bregress", na=False)
+
+                df_rr = pd.DataFrame({
+                    "Categoria": ["Regression", "Others"],
+                    "Qtd": [int(is_reg.sum()), int((~is_reg).sum())]
+                })
+
+                chart_rr = (
+                    alt.Chart(df_rr)
+                    .mark_bar()
+                    .encode(
+                        x=alt.X("Categoria:N", title=None),
+                        y=alt.Y("Qtd:Q", title="Test Cases"),
+                        color=alt.Color(
+                            "Categoria:N",
+                            legend=None,
+                            scale=alt.Scale(
+                                domain=["Regression", "Others"],
+                                range=["#10B981", "#6B7280"]  # verde p/ Regression, cinza p/ Others
+                            ),
+                        ),
+                        tooltip=[alt.Tooltip("Categoria:N"), alt.Tooltip("Qtd:Q", title="Quantidade")],
+                    )
+                    .properties(height=220)
+                )
+
+                st.altair_chart(chart_rr, use_container_width=True)
+
     with cB:
         st.markdown("#### Positive × Negative (labels/testType)")
         if f_ze.empty:
