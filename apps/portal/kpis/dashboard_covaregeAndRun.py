@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-import os
 import re
 import streamlit as st
 import pandas as pd
@@ -10,21 +9,53 @@ from pandas.api.types import is_datetime64_any_dtype, is_datetime64tz_dtype
 
 from .analytics.constants import (
     KPI_LASTUPDATE,
-    JIRA_EPIC, JIRA_STORY, JIRA_FUNC,  # <- incluí o FUNC
-    JIRA_BUG, JIRA_SUBBUG, JIRA_PROJ,
+    JIRA_EPIC, JIRA_STORY, JIRA_BUG, JIRA_SUBBUG, JIRA_PROJ,
     ZEPHYR_TC, ZEPHYR_EXEC_MAIN, ZEPHYR_EXEC_FALLBACK,
 )
+# FUNC é opcional no teu repo
+try:
+    from .analytics.constants import JIRA_FUNC
+except Exception:
+    JIRA_FUNC = None
+
 from .analytics.data_access import safe_read_csv, read_last_update
 from .analytics.transformers import (
     normalize_issue_df, normalize_bugs, ensure_project_on_executions,
 )
 
-# ---------------- Utils ----------------
+# --------------------------------------------------------------------
+# Helpers
+# --------------------------------------------------------------------
 def _pct(a, b):
     return (float(a) / float(b) * 100.0) if (b not in (0, None, np.nan) and float(b) != 0.0) else 0.0
 
 def _project_from_key(s: pd.Series) -> pd.Series:
     return s.astype(str).str.extract(r"^([A-Z0-9_]+)-", expand=False).fillna("")
+
+def _first_col(df: pd.DataFrame, names: list[str]) -> str | None:
+    for n in names:
+        if n in df.columns:
+            return n
+    return None
+
+def _norm_cols(df: pd.DataFrame) -> dict:
+    """
+    Normaliza nomes de colunas (lower, remove NBSP, troca múltiplos espaços por 1).
+    Retorna um dicionário {nome_normalizado: nome_original}.
+    """
+    mapping = {}
+    for c in df.columns:
+        nc = str(c).replace("\xa0", " ")
+        nc = re.sub(r"\s+", " ", nc).strip().lower()
+        mapping[nc] = c
+    return mapping
+
+def _is_automated_bool_series(s: pd.Series) -> pd.Series:
+    return s.astype(str).str.strip().str.lower().isin(["1", "true", "y", "yes", "sim", "automated"])
+
+def _is_automated_from_custom_status_exact(value) -> bool:
+    if pd.isna(value): return False
+    return str(value).strip().lower() == "automated"
 
 def _status_series(df: pd.DataFrame) -> pd.Series:
     for c in ["status", "fields.status.name", "fields.status", "Status", "status.name"]:
@@ -36,74 +67,74 @@ def _is_closed(status: str) -> bool:
     s = str(status).upper()
     return bool(re.search(r"(DONE|CLOSED|RESOLVED)", s))
 
-def _first_col(df: pd.DataFrame, names: list[str]) -> str | None:
-    for n in names:
-        if n in df.columns:
-            return n
-    return None
-
-def _is_automated_bool_series(s: pd.Series) -> pd.Series:
-    return s.astype(str).str.strip().str.lower().isin(["1", "true", "y", "yes", "sim", "automated"])
-
-def _is_automated_from_custom_status_exact(value) -> bool:
-    if pd.isna(value): return False
-    return str(value).strip().lower() == "automated"
-
-# Extrai tabelas de links (issue_id/issue_key) a partir do CSV de Test Cases
-def _extract_links_from_testcases(df_zc: pd.DataFrame):
+# --------- Links por ID a partir do CSV de Test Cases ----------
+def _extract_issue_ids_from_testcases(df_zc: pd.DataFrame) -> pd.DataFrame:
+    """
+    Retorna DataFrame com colunas:
+      - tc_key : identificador do test case (ex.: 'key' do Zephyr)
+      - issue_id : ID numérico da issue vinculada
+    Lê colunas variantes de 'links.issues.issue id' / 'Links.issues.id' (com NBSP/maiúsculas/esp. duplo etc).
+    Aceita valores separados por vírgula e URLs em 'Links.issues.target' (terminando com /issue/<id>).
+    """
     if df_zc.empty:
-        return (pd.DataFrame(columns=["tc_id","issue_id"], dtype="Int64"),
-                pd.DataFrame(columns=["tc_id","issue_key"], dtype="object"))
+        return pd.DataFrame(columns=["tc_key", "issue_id"])
 
-    tc_id_col = _first_col(df_zc, ["key", "testCaseKey", "id", "testcaseKey"])
-    if not tc_id_col:
-        # garante alguma identificação
-        df_zc = df_zc.copy()
-        df_zc["_row_id_"] = np.arange(len(df_zc))
-        tc_id_col = "_row_id_"
+    cols_norm = _norm_cols(df_zc)
 
-    # ---- Por ID ----
-    id_cols = ["Links.issues.id", "links.issues.id", "issue.id", "issueId"]
-    frames_id = []
-    for c in id_cols:
-        if c in df_zc.columns:
-            tmp = df_zc[[tc_id_col, c]].dropna()
-            if not tmp.empty:
-                tmp = tmp.assign(_ids=tmp[c].astype(str).str.findall(r"\d+")).explode("_ids")
-                tmp["issue_id"] = pd.to_numeric(tmp["_ids"], errors="coerce").astype("Int64")
-                frames_id.append(tmp[[tc_id_col, "issue_id"]])
-    # URLs com id no final
-    if "Links.issues.target" in df_zc.columns:
-        tmp = df_zc[[tc_id_col, "Links.issues.target"]].dropna()
+    # coluna do test case (key/id)
+    tc_col = None
+    for cand in ["key", "testcasekey", "testcase key", "id", "test case key"]:
+        if cand in cols_norm:
+            tc_col = cols_norm[cand]
+            break
+    if not tc_col:
+        df = df_zc.copy()
+        df["_tc_tmp_"] = np.arange(len(df))
+        tc_col = "_tc_tmp_"
+    else:
+        df = df_zc
+
+    frames = []
+
+    # 1) Colunas de ID explícito
+    # cobrimos 'links.issues.issue id', 'links.issues.id', 'links.issues.issueid'
+    id_like = [k for k in cols_norm.keys() if re.fullmatch(r"links\.issues\.(.*\sid|id)$", k)]
+    for k in id_like:
+        col = cols_norm[k]
+        tmp = df[[tc_col, col]].dropna()
         if not tmp.empty:
-            tmp = tmp.assign(_ids=tmp["Links.issues.target"].astype(str).str.findall(r"/issue/(\d+)")).explode("_ids")
-            tmp["issue_id"] = pd.to_numeric(tmp["_ids"], errors="coerce").astype("Int64")
-            frames_id.append(tmp[[tc_id_col, "issue_id"]])
+            # aceita "123, 456" ou listas serializadas
+            s = tmp[col].astype(str)
+            vals = s.str.findall(r"\d+")
+            tmp = tmp.assign(_id=vals).explode("_id")
+            tmp["_id"] = pd.to_numeric(tmp["_id"], errors="coerce")
+            tmp = tmp.dropna(subset=["_id"])
+            frames.append(tmp[[tc_col, "_id"]].rename(columns={tc_col: "tc_key", "_id": "issue_id"}))
 
-    df_links_id = pd.concat(frames_id, ignore_index=True) if frames_id else pd.DataFrame(columns=[tc_id_col,"issue_id"])
-    if not df_links_id.empty:
-        df_links_id = df_links_id.dropna(subset=["issue_id"]).drop_duplicates()
-        df_links_id = df_links_id.rename(columns={tc_id_col: "tc_id"}).astype({"issue_id":"Int64"})
-
-    # ---- Por KEY ----
-    key_cols = ["Links.issues.key", "links.issues.key", "issueKey", "issue.key", "jira.key", "jiraKey"]
-    frames_key = []
-    for c in key_cols:
-        if c in df_zc.columns:
-            tmp = df_zc[[tc_id_col, c]].dropna()
+    # 2) URLs em Links.issues.target com .../issue/<id>
+    for cand in ["links.issues.target", "links.issues url", "links.issues.target url"]:
+        if cand in cols_norm:
+            col = cols_norm[cand]
+            tmp = df[[tc_col, col]].dropna()
             if not tmp.empty:
-                tmp = tmp.assign(_keys=tmp[c].astype(str).str.findall(r"[A-Z0-9_]+-\d+")).explode("_keys")
-                tmp = tmp.rename(columns={tc_id_col: "tc_id"})
-                tmp["issue_key"] = tmp["_keys"].astype(str)
-                frames_key.append(tmp[["tc_id","issue_key"]])
+                vals = tmp[col].astype(str).str.findall(r"/issue/(\d+)")
+                tmp = tmp.assign(_id=vals).explode("_id")
+                tmp["_id"] = pd.to_numeric(tmp["_id"], errors="coerce")
+                tmp = tmp.dropna(subset=["_id"])
+                frames.append(tmp[[tc_col, "_id"]].rename(columns={tc_col: "tc_key", "_id": "issue_id"}))
+            break
 
-    df_links_key = pd.concat(frames_key, ignore_index=True) if frames_key else pd.DataFrame(columns=["tc_id","issue_key"])
-    if not df_links_key.empty:
-        df_links_key = df_links_key.dropna(subset=["issue_key"]).drop_duplicates()
+    if not frames:
+        return pd.DataFrame(columns=["tc_key", "issue_id"])
 
-    return df_links_id, df_links_key
+    df_links = pd.concat(frames, ignore_index=True)
+    df_links["issue_id"] = df_links["issue_id"].astype("Int64")
+    df_links = df_links.drop_duplicates().dropna(subset=["issue_id"])
+    return df_links
 
-# ---------------- Página ----------------
+# --------------------------------------------------------------------
+# Página
+# --------------------------------------------------------------------
 def pagina_dashboard_coverage_and_run():
     try:
         st.set_page_config(page_title="Coverage and Run", layout="wide")
@@ -121,34 +152,42 @@ def pagina_dashboard_coverage_and_run():
 
     st.markdown("### Coverage and Run")
 
-    # -------- Carregar dados
+    # ---------------- Carregamento ----------------
     df_story_raw  = safe_read_csv(JIRA_STORY)
     df_epic_raw   = safe_read_csv(JIRA_EPIC)
-    df_func_raw   = safe_read_csv(JIRA_FUNC)
     df_bug        = normalize_bugs(safe_read_csv(JIRA_BUG))
     df_subbug     = normalize_bugs(safe_read_csv(JIRA_SUBBUG))
     df_proj       = safe_read_csv(JIRA_PROJ)
-
     df_zc         = safe_read_csv(ZEPHYR_TC)  # Test Cases
     df_ze         = ensure_project_on_executions(safe_read_csv([ZEPHYR_EXEC_MAIN, ZEPHYR_EXEC_FALLBACK]))
 
-    # -------- Normalizar issues (created_date como date)
+    # FUNC opcional
+    if JIRA_FUNC:
+        try:
+            df_func_raw = safe_read_csv(JIRA_FUNC)
+            df_func = normalize_issue_df(df_func_raw)
+        except Exception:
+            df_func_raw = pd.DataFrame()
+            df_func = pd.DataFrame()
+    else:
+        df_func_raw = pd.DataFrame()
+        df_func = pd.DataFrame()
+
+    # ---------------- Normalize Issues (created_date como date) ----------------
     df_story = normalize_issue_df(df_story_raw)
     df_epic  = normalize_issue_df(df_epic_raw)
-    df_func  = normalize_issue_df(df_func_raw)
-
     for d in (df_story, df_epic, df_func):
         if not d.empty and "created" in d.columns:
             d["created_date"] = pd.to_datetime(d["created"], errors="coerce", utc=True).dt.date
         elif not d.empty:
             d["created_date"] = pd.NaT
 
-    # -------- Execuções: executed_date como date
+    # ---------------- Execuções (executed_date como date) ----------------
     if not df_ze.empty:
-        exec_col = _first_col(df_ze, ["actualEndDate","executedOn"])
+        exec_col = _first_col(df_ze, ["actualEndDate", "executedOn"])
         df_ze["executed_date"] = pd.to_datetime(df_ze[exec_col], errors="coerce", utc=True).dt.date if exec_col else pd.NaT
 
-    # -------- Test Cases (df_zc)
+    # ---------------- Test Cases (projectKey + created_date robusto) ---------
     if not df_zc.empty:
         if "projectKey" not in df_zc.columns:
             df_zc["projectKey"] = _project_from_key(df_zc["key"]) if "key" in df_zc.columns else ""
@@ -168,7 +207,7 @@ def pagina_dashboard_coverage_and_run():
                 df_zc["year"] = pd.NA
         df_zc["projectKey"] = df_zc["projectKey"].astype("category")
 
-    # -------- Filtros topo
+    # ---------------- Filtros topo ----------------
     if not df_proj.empty and {"name","key"}.issubset(df_proj.columns):
         projects = ["Todos"] + sorted(df_proj["key"].dropna().astype(str).unique().tolist())
     else:
@@ -181,7 +220,7 @@ def pagina_dashboard_coverage_and_run():
         ] if not s.empty], ignore_index=True)
         projects = ["Todos"] + sorted([p for p in pref.dropna().astype(str).unique().tolist() if p])
 
-    # intervalo base
+    # Período base
     if not df_ze.empty and "executed_date" in df_ze.columns:
         all_dates = df_ze["executed_date"].dropna().tolist()
     elif not df_story.empty:
@@ -225,17 +264,17 @@ def pagina_dashboard_coverage_and_run():
     with c0:
         ca, cb = st.columns(2)
         with ca:
-            st.date_input("Date (calendário)", key="intervalo_data_car", min_value=min_d, max_value=max_d,
-                          format="DD/MM/YYYY", on_change=_on_calendar_change)
+            st.date_input("Date (calendário)", key="intervalo_data_car",
+                          min_value=min_d, max_value=max_d, format="DD/MM/YYYY", on_change=_on_calendar_change)
         with cb:
-            st.slider("Date (slider)", key="intervalo_slider_car", min_value=min_d, max_value=max_d,
-                      format="DD/MM/YYYY", on_change=_on_slider_change)
+            st.slider("Date (slider)", key="intervalo_slider_car",
+                      min_value=min_d, max_value=max_d, format="DD/MM/YYYY", on_change=_on_slider_change)
     with c1: st.caption("")
     with c2: st.caption("")
 
     d_start, d_end = st.session_state["periodo_master_car"]
 
-    # -------- Filtros Domain/Período
+    # ---------------- Filtros Domain/Período ----------------
     def _f_proj(df: pd.DataFrame, col="projectKey") -> pd.DataFrame:
         if df.empty or sel_project == "Todos": return df
         return df[df.get(col, "").astype(str) == str(sel_project)].copy()
@@ -293,28 +332,22 @@ def pagina_dashboard_coverage_and_run():
             domains = len(set([*f_story.get("projectKey", pd.Series(dtype="object")).dropna().unique(),
                                *f_epic.get("projectKey", pd.Series(dtype="object")).dropna().unique()]))
         st.metric("Domain", int(domains) if pd.notna(domains) else 0)
-
     with col1[1]: st.metric("QTD Story", int(f_story.shape[0]))
     with col1[2]: st.metric("QTD Epic",  int(f_epic.shape[0]))
-    # (% Story Coverage será redefinido mais abaixo quando tivermos os links)
-    with col1[3]: st.metric("% Story Coverage", "…")
+    cov_slot = col1[3].empty()            # <- placeholder ÚNICO
+    cov_slot.metric("% Story Coverage", "—")
 
-    # ----- TEST CASES (Automated/Manual/Total)
-    auto_series_cases = pd.Series(dtype="bool")
-    manual_tests = automated_tests = total_tests = 0
+    # ---------------- TEST CASES (Automated/Manual/Total) ----------------
+    automated_tests = total_tests = manual_tests = 0
     if not f_zc.empty:
-        auto_col = _first_col(f_zc, ["customFields.Automation Status"])
-        if auto_col:
-            auto_series_cases = f_zc[auto_col].apply(_is_automated_from_custom_status_exact)
-        else:
-            auto_series_cases = pd.Series(False, index=f_zc.index)
+        auto_col = _first_col(f_zc, ["customFields.Automation Status"])  # critério oficial
+        auto_series_cases = f_zc[auto_col].apply(_is_automated_from_custom_status_exact) if auto_col else pd.Series(False, index=f_zc.index)
         automated_tests = int(auto_series_cases.sum())
         total_tests     = int(len(f_zc))
         manual_tests    = int(total_tests - automated_tests)
 
-    # Fallback por RUNS se não houver cases
     if total_tests == 0 and not f_ze.empty:
-        key_run = _first_col(f_ze, ["testCaseKey", "testCase.key", "testKey", "testCaseId", "testId"])
+        key_run = _first_col(f_ze, ["testCaseKey","testCase.key","testKey","testCaseId","testId"])
         if key_run:
             z = f_ze.dropna(subset=[key_run]).copy()
             is_auto_run = _is_automated_bool_series(z.get("automated", pd.Series(dtype="object")))
@@ -346,78 +379,45 @@ def pagina_dashboard_coverage_and_run():
         total_runs = int(man_runs + aut_runs)
         st.metric("# Total Run", total_runs)
 
-    # ---------------- LINKS TestCase -> Issues ----------------
-    links_id, links_key = _extract_links_from_testcases(f_zc)
-    linked_ids  = set(links_id["issue_id"].dropna().astype("Int64").tolist()) if not links_id.empty else set()
-    linked_keys = set(links_key["issue_key"].dropna().astype(str).tolist())     if not links_key.empty else set()
+    # ---------------- CÁLCULOS pedidinhos ----------------
 
-    # -------- % Story Coverage (Stories + Epics com pelo menos 1 link)
-    def _covered_count(f_df: pd.DataFrame) -> int:
-        if f_df.empty: return 0
-        has_id  = "id" in f_df.columns
-        has_key = "key" in f_df.columns
-        m = pd.Series([False]*len(f_df), index=f_df.index)
-        if has_id:
-            try:
-                ids = pd.to_numeric(f_df["id"], errors="coerce").astype("Int64")
-                m = m | ids.isin(linked_ids)
-            except Exception:
-                pass
-        if has_key:
-            keys = f_df["key"].astype(str)
-            m = m | keys.isin(linked_keys)
-        return int(m.sum())
+    # 1) % STORY COVERAGE (apenas Stories com >= 1 TC linkado por ID)
+    links_by_id = _extract_issue_ids_from_testcases(f_zc) if not f_zc.empty else pd.DataFrame(columns=["tc_key","issue_id"])
+    story_ids = pd.to_numeric(f_story.get("id", pd.Series(dtype="object")), errors="coerce").dropna().astype("Int64")
+    if not links_by_id.empty and not story_ids.empty:
+        covered_story_ids = set(links_by_id["issue_id"].dropna().astype("Int64")) & set(story_ids.tolist())
+        pct_story_cov = _pct(len(covered_story_ids), int(f_story.shape[0]))
+    else:
+        pct_story_cov = 0.0
+    cov_slot.metric("% Story Coverage", f"{pct_story_cov:.2f}%")  # atualiza o MESMO placeholder
 
-    covered_story = _covered_count(f_story)
-    covered_epic  = _covered_count(f_epic)
-    denom_cover   = int(f_story.shape[0] + f_epic.shape[0])
-    pct_story_cov = _pct(covered_story + covered_epic, denom_cover)
+    # 2) # TEST AVERAGE PER ISSUE (Stories + Epics + Func) por ID
+    issue_id_sets = []
+    for df_ in (f_story, f_epic, f_func):
+        if not df_.empty and "id" in df_.columns:
+            ids = pd.to_numeric(df_["id"], errors="coerce").dropna().astype("Int64")
+            if not ids.empty:
+                issue_id_sets.append(set(ids.tolist()))
+    relevant_issue_ids = set().union(*issue_id_sets) if issue_id_sets else set()
 
-    # atualiza o card
-    with col1[3]:
-        st.metric("% Story Coverage", f"{pct_story_cov:.2f}%")
-
-    # -------- # Test average per issue (Stories + Epics + Func)
-    # contabiliza quantos test cases (distinct por test case) cada issue tem
-    counts_by_issue = []
-
-    # por ID
-    if not links_id.empty:
-        # Filtra pelos IDs de issues relevantes
-        ids_rel = set()
-        for d in (f_story, f_epic, f_func):
-            if not d.empty and "id" in d.columns:
-                ids_rel |= set(pd.to_numeric(d["id"], errors="coerce").dropna().astype("Int64").tolist())
-        if ids_rel:
-            tmp = links_id[links_id["issue_id"].isin(ids_rel)]
-            if not tmp.empty:
-                by = tmp.groupby("issue_id")["tc_id"].nunique()
-                counts_by_issue.extend(by.tolist())
-
-    # por KEY (caso não haja ID disponível no CSV)
-    if not links_key.empty:
-        keys_rel = set()
-        for d in (f_story, f_epic, f_func):
-            if not d.empty and "key" in d.columns:
-                keys_rel |= set(d["key"].dropna().astype(str).tolist())
-        if keys_rel:
-            tmp = links_key[links_key["issue_key"].isin(keys_rel)]
-            if not tmp.empty:
-                by = tmp.groupby("issue_key")["tc_id"].nunique()
-                counts_by_issue.extend(by.tolist())
-
-    total_issues = int(f_story.shape[0] + f_epic.shape[0] + f_func.shape[0])
-    total_tests_linkados = int(sum(counts_by_issue))
-    avg_tests_per_issue = (total_tests_linkados / total_issues) if total_issues > 0 else 0.0
+    if not links_by_id.empty and relevant_issue_ids:
+        df_link_rel = links_by_id[links_by_id["issue_id"].isin(list(relevant_issue_ids))]
+        if not df_link_rel.empty:
+            by_issue = df_link_rel.groupby("issue_id")["tc_key"].nunique()
+            avg_tests_per_issue = float(by_issue.mean()) if not by_issue.empty else 0.0
+        else:
+            avg_tests_per_issue = 0.0
+    else:
+        avg_tests_per_issue = 0.0
 
     with col3[3]:
         st.metric("# Test average per issue", f"{avg_tests_per_issue:.2f}")
 
-    # ---------------- Cards finais (Closed + %)
-    col4 = st.columns(4)
+    # ---------------- Cards finais (Closed + %) ----------------
     story_status_map = dict(zip(df_story_raw.get("key", pd.Series(dtype="object")).astype(str), _status_series(df_story_raw))) if not df_story_raw.empty and "key" in df_story_raw.columns else {}
     epic_status_map  = dict(zip(df_epic_raw.get("key",  pd.Series(dtype="object")).astype(str), _status_series(df_epic_raw)))  if not df_epic_raw.empty and "key" in df_epic_raw.columns  else {}
 
+    col4 = st.columns(4)
     with col4[0]:
         if not f_story.empty and story_status_map:
             keys = f_story.get("key", pd.Series(dtype="object")).dropna().astype(str)
@@ -437,17 +437,14 @@ def pagina_dashboard_coverage_and_run():
 
     st.markdown("---")
 
-    # ---------------- Automated Backlog
+    # ---------------- Automated Backlog (mantido) ----------------
     st.markdown("#### Automated Backlog")
     if f_zc.empty:
         if total_tests == 0:
             st.info("Sem dados de casos de teste (Zephyr Test Cases).")
     else:
         auto_col = _first_col(f_zc, ["customFields.Automation Status"])
-        if auto_col:
-            auto_mask = f_zc[auto_col].apply(_is_automated_from_custom_status_exact)
-        else:
-            auto_mask = pd.Series(False, index=f_zc.index)
+        auto_mask = f_zc[auto_col].apply(_is_automated_from_custom_status_exact) if auto_col else pd.Series(False, index=f_zc.index)
         not_app   = f_zc.get("status", pd.Series(dtype="object")).astype(str).str.contains("not applic", case=False, na=False)
         n_auto, n_total, n_not_app = int(auto_mask.sum()), int(len(f_zc)), int(not_app.sum())
         n_backlog = max(0, n_total - n_auto - n_not_app)
@@ -460,7 +457,7 @@ def pagina_dashboard_coverage_and_run():
         ).properties(height=120)
         st.altair_chart(chart_auto, use_container_width=True)
 
-    # ---------------- Gráficos (mantidos)
+    # ---------------- Gráficos (mantidos) ----------------
     cA, cB, cC = st.columns(3)
     with cA:
         st.markdown("#### Regressive × Others (Test type)")
@@ -475,7 +472,6 @@ def pagina_dashboard_coverage_and_run():
                 color=alt.Color("grp:N", legend=None)
             ).properties(height=220)
             st.altair_chart(ch, use_container_width=True)
-
     with cB:
         st.markdown("#### Positive × Negative (labels/testType)")
         if f_ze.empty:
@@ -493,7 +489,6 @@ def pagina_dashboard_coverage_and_run():
                 color=alt.Color("class:N", legend=None)
             ).properties(height=220)
             st.altair_chart(ch, use_container_width=True)
-
     with cC:
         st.markdown("#### Automated run × Manual run")
         if f_ze.empty or "automated" not in f_ze.columns:
