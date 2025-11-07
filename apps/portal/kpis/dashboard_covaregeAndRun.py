@@ -438,13 +438,13 @@ def pagina_dashboard_coverage_and_run():
     st.markdown("---")
 
     # ---------------- Automated Backlog (mantido) ----------------
-        # ---------------- Automated Backlog (meio-donut estilo Power BI) ----------------
+        # ---------------- Automated Backlog (Waterfall + composição 100%) ----------------
     st.markdown("#### Automated Backlog")
 
     if f_zc.empty:
         st.info("Sem dados de casos de teste (Zephyr Test Cases).")
     else:
-        # 1) Contagens
+        # Contagens já alinhadas com sua lógica
         auto_col  = _first_col(f_zc, ["customFields.Automation Status"])
         auto_mask = f_zc[auto_col].apply(_is_automated_from_custom_status_exact) if auto_col else pd.Series(False, index=f_zc.index)
         not_app   = f_zc.get("status", pd.Series(dtype="object")).astype(str).str.contains("not applic", case=False, na=False)
@@ -453,56 +453,72 @@ def pagina_dashboard_coverage_and_run():
         n_auto     = int(auto_mask.sum())
         n_not_app  = int(not_app.sum())
         n_backlog  = max(0, n_total - n_auto - n_not_app)
-        n_max_auto = max(0, n_total - n_not_app)  # “máximo possível” (Total - Not applicable)
 
-        if n_max_auto == 0:
-            st.info("Não há itens automatizáveis no período.")
-        else:
-            # 2) Meia-lua usando theta/theta2 (−180° a 0°)
-            deg_per_unit = 180.0 / n_max_auto
-            deg_auto     = n_auto * deg_per_unit
-            # duas fatias: Automated (−180 → −180+deg_auto) e Backlog (restante até 0)
-            df_gauge = pd.DataFrame({
-                "Categoria": ["Automated", "Backlog automated"],
-                "start":     [-180.0,          -180.0 + deg_auto],
-                "end":       [-180.0 + deg_auto, 0.0],
-                "Quantidade": [n_auto, n_backlog],
-            })
+        # ---------- Waterfall: Total -> -Not applicable -> -Automated -> Backlog ----------
+        wf = pd.DataFrame([
+            {"etapa": "Total tests",        "cat": "total",    "y0": 0,                           "y1": n_total,                      "valor_abs": n_total},
+            {"etapa": "- Not applicable",   "cat": "not_app",  "y0": n_total - n_not_app,         "y1": n_total,                      "valor_abs": n_not_app},
+            {"etapa": "- Automated",        "cat": "auto",     "y0": n_total - n_not_app - n_auto,"y1": n_total - n_not_app,          "valor_abs": n_auto},
+            {"etapa": "Backlog",            "cat": "backlog",  "y0": 0,                           "y1": n_backlog,                    "valor_abs": n_backlog},
+        ])
+        # posição do rótulo (em barras “negativas” o topo é y0, nas “positivas” é y1)
+        wf["y_label"] = np.where(wf["cat"].isin(["not_app", "auto"]), wf["y0"], wf["y1"])
 
-            donut = (
-                alt.Chart(df_gauge)
-                .mark_arc(innerRadius=85, outerRadius=120)   # sem startAngle/endAngle no mark!
-                .encode(
-                    theta = alt.Theta("start:Q"),
-                    theta2= alt.Theta2("end:Q"),
-                    color = alt.Color(
-                        "Categoria:N",
-                        legend=None,
-                        scale=alt.Scale(
-                            domain=["Automated", "Backlog automated"],
-                            range=["#1fb6ff", "#6b7280"],  # destaque + neutro
-                        ),
-                    ),
-                    tooltip=[
-                        alt.Tooltip("Categoria:N", title="Categoria"),
-                        alt.Tooltip("Quantidade:Q", title="Quantidade"),
-                    ],
-                )
-                .properties(height=240)
+        color_scale = alt.Scale(
+            domain=["total", "not_app", "auto", "backlog"],
+            range=["#9CA3AF", "#A855F7", "#1FB6FF", "#F59E0B"]  # cinza, roxo, azul, âmbar
+        )
+
+        waterfall = (
+            alt.Chart(wf)
+            .mark_bar()
+            .encode(
+                x=alt.X("etapa:N", sort=["Total tests", "- Not applicable", "- Automated", "Backlog"], title=None),
+                y=alt.Y("y0:Q", title="Tests", scale=alt.Scale(domain=[0, max(n_total, n_backlog)])),
+                y2="y1:Q",
+                color=alt.Color("cat:N", legend=None, scale=color_scale),
+                tooltip=[
+                    alt.Tooltip("etapa:N", title="Etapa"),
+                    alt.Tooltip("valor_abs:Q", title="Quantidade"),
+                ],
             )
+            .properties(height=240)
+        )
 
-            # número de referência nas pontas: 0 | n_max_auto
-            labels_df = pd.DataFrame({"x": [-1, 1], "y": [0, 0], "txt": ["0", f"{n_max_auto}"]})
-            ref_labels = (
-                alt.Chart(labels_df)
-                .mark_text(fontSize=11, dy=65)
-                .encode(x="x:Q", y="y:Q", text="txt:N")
-                .properties(height=240)
+        labels = (
+            alt.Chart(wf)
+            .mark_text(fontSize=11, dy=-4)
+            .encode(
+                x="etapa:N",
+                y="y_label:Q",
+                text=alt.Text("valor_abs:Q")
             )
+        )
 
-            st.altair_chart(donut + ref_labels, use_container_width=True)
+        st.altair_chart(waterfall + labels, use_container_width=True)
 
-        # 3) Números abaixo (como no Power BI)
+        # ---------- Barrinha 100% (composição) ----------
+        comp = pd.DataFrame({
+            "Categoria": ["Automated", "Backlog", "Not applicable"],
+            "Qtd":       [n_auto,       n_backlog,  n_not_app]
+        })
+        comp_colors = alt.Scale(
+            domain=["Automated", "Backlog", "Not applicable"],
+            range=["#1FB6FF", "#F59E0B", "#A855F7"]
+        )
+        comp_bar = (
+            alt.Chart(comp)
+            .mark_bar()
+            .encode(
+                x=alt.X("Qtd:Q", stack="normalize", axis=alt.Axis(format="%", title="Share")),
+                color=alt.Color("Categoria:N", scale=comp_colors),
+                tooltip=[alt.Tooltip("Categoria:N"), alt.Tooltip("Qtd:Q", title="Quantidade")]
+            )
+            .properties(height=36)
+        )
+        st.altair_chart(comp_bar, use_container_width=True)
+
+        # ---------- KPIs abaixo, como no Power BI ----------
         c1, c2, c3 = st.columns(3)
         c1.metric("Automated", n_auto)
         c2.metric("Backlog automated", n_backlog)

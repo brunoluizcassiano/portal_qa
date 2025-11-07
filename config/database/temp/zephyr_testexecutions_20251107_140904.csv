@@ -1,0 +1,1 @@
+id,key,project.id,testCase.self,testCase.id,environment.id,jiraProjectVersion,testExecutionStatus.id,testExecutionStatus.self,actualEndDate,estimatedTime,executionTime,executedById,assignedToId,comment,automated,testCycle.self,testCycle.id,customFields.Execution Type,links.self,links.issues.self,links.issues.issueId,links.issues.id,links.issues.target,links.issues.type
