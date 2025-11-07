@@ -27,9 +27,13 @@ except Exception:
     ZEPHYR_CYCLE_FALLBACK = None
 
 from .analytics.data_access import safe_read_csv, read_last_update
-from .analytics.transformers import (
-    normalize_issue_df, normalize_bugs, ensure_project_on_executions,
-)
+from .analytics.transformers import normalize_issue_df, normalize_bugs
+# ensure_project_on_executions é opcional; se não existir, vira no-op
+try:
+    from .analytics.transformers import ensure_project_on_executions
+except Exception:
+    def ensure_project_on_executions(df: pd.DataFrame) -> pd.DataFrame:
+        return df
 
 # --------------------------------------------------------------------
 # Helpers
@@ -196,7 +200,10 @@ def pagina_dashboard_coverage_and_run():
     df_subbug     = normalize_bugs(safe_read_csv(JIRA_SUBBUG))
     df_proj       = safe_read_csv(JIRA_PROJ)
     df_zc         = safe_read_csv(ZEPHYR_TC)  # Test Cases
-    df_ze         = ensure_project_on_executions(safe_read_csv([ZEPHYR_EXEC_MAIN, ZEPHYR_EXEC_FALLBACK]))
+
+    # Execuções: lê (main+fallback), tenta transformer (se existir) e garante fallback local
+    df_ze_raw     = safe_read_csv([ZEPHYR_EXEC_MAIN, ZEPHYR_EXEC_FALLBACK])
+    df_ze         = ensure_project_on_executions(df_ze_raw.copy())
 
     # CYCLES (opcionais): main + fallback se existirem
     cycle_sources = [s for s in [ZEPHYR_CYCLE_MAIN, ZEPHYR_CYCLE_FALLBACK] if s]
@@ -223,7 +230,7 @@ def pagina_dashboard_coverage_and_run():
         elif not d.empty:
             d["created_date"] = pd.NaT
 
-    # ---------------- Execuções (executed_date e month) ----------------
+    # ---------------- Execuções (executed_date e month + projectKey derivado) ----------------
     if not df_ze.empty:
         exec_col = _first_col(df_ze, ["actualEndDate", "executedOn"])
         if exec_col:
@@ -232,6 +239,40 @@ def pagina_dashboard_coverage_and_run():
             df_ze["month"] = cdt.dt.strftime("%Y-%m")
         else:
             df_ze["executed_date"] = pd.NaT
+
+        # Garantir projectKey nas execuções, igual fizemos para Cycles
+        need_proj = ("projectKey" not in df_ze.columns) or df_ze["projectKey"].astype(str).str.strip().eq("").all()
+        if need_proj:
+            proj_series = None
+
+            # 1) testCaseKey (ex.: TRBC-T1234)
+            for cand in ["testCaseKey", "testCase.key"]:
+                if cand in df_ze.columns:
+                    proj_series = _project_from_key(df_ze[cand])
+                    break
+
+            # 2) testCycle.key (ex.: TRBC-R628)
+            if proj_series is None or proj_series.fillna("").eq("").all():
+                cand = _first_col(df_ze, ["testCycle.key", "testCycleKey", "cycleKey"])
+                if cand:
+                    proj_series = _project_from_key(df_ze[cand])
+
+            # 3) key da execução
+            if (proj_series is None or proj_series.fillna("").eq("").all()) and "key" in df_ze.columns:
+                proj_series = _project_from_key(df_ze["key"])
+
+            # 4) issueKey / testCase.key genérico
+            if proj_series is None or proj_series.fillna("").eq("").all():
+                cand = _first_col(df_ze, ["issueKey", "testKey", "Test Case Key"])
+                if cand:
+                    proj_series = _project_from_key(df_ze[cand])
+
+            if proj_series is None:
+                proj_series = pd.Series([""] * len(df_ze), index=df_ze.index)
+
+            df_ze["projectKey"] = proj_series.fillna("").astype(str)
+
+        df_ze["projectKey"] = df_ze["projectKey"].astype("category")
 
     # ---------------- Test Cases (projectKey + created_date robusto) ---------
     if not df_zc.empty:
@@ -778,7 +819,7 @@ def pagina_dashboard_coverage_and_run():
         st.info("Sem execuções no período selecionado.")
     else:
         z = f_ze.copy()
-        z["is_auto"] = z.get("automated", pd.Series(dtype="object")).astype(str).str.lower().isin(["1","true","yes"])
+        z["is_auto"] = z.get("automated", pd.Series(dtype="object")).astype(str).str.lower().isin(["1","true","yes","automated","sim"])
         df_month = z.groupby(["month","is_auto"]).size().reset_index(name="runs")
         df_month["tipo"] = df_month["is_auto"].map({True:"Automated Run", False:"Manual Run"})
         try:
