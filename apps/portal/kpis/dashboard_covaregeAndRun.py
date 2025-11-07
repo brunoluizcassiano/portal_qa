@@ -616,22 +616,63 @@ def pagina_dashboard_coverage_and_run():
                 st.altair_chart(chart_rr, use_container_width=True)
 
     with cB:
-        st.markdown("#### Positive × Negative (labels/testType)")
-        if f_ze.empty:
-            st.info("Sem execuções no período.")
+        # ---------------- Positive × Negative (Test Cases -> Custom Fields.Test Class) ----------------
+        st.markdown("#### Positive × Negative (Test class)")
+
+        if f_zc.empty:
+            st.info("Sem dados de casos de teste (Zephyr Test Cases).")
         else:
-            z = f_ze.copy()
-            neg = pd.Series(False, index=z.index)
-            if "testType" in z.columns:
-                neg |= z["testType"].astype(str).str.lower().str.contains("negative|negativo")
-            if "labels" in z.columns:
-                neg |= z["labels"].astype(str).str.lower().str.contains("negative|negativo")
-            df_pn = pd.DataFrame({"class": ["Positive","Negative"], "runs": [int((~neg).sum()), int(neg.sum())]})
-            ch = alt.Chart(df_pn).mark_bar().encode(
-                x=alt.X("class:N", title=None), y=alt.Y("runs:Q", title="Runs"),
-                color=alt.Color("class:N", legend=None)
-            ).properties(height=220)
-            st.altair_chart(ch, use_container_width=True)
+            # procura a coluna considerando variações/espacos/NBSP
+            tc_col = _find_col_norm(
+                f_zc,
+                ["custom fields.test class", "customfields.test class", "test class"]
+            )
+
+            if not tc_col:
+                st.info("Coluna 'Custom Fields.Test Class' não encontrada nos Test Cases.")
+            else:
+                s = (
+                    f_zc[tc_col]
+                    .astype(str)
+                    .str.replace("\xa0", " ")
+                    .str.strip()
+                    .str.lower()
+                )
+                is_pos = s.eq("positive")
+                is_neg = s.eq("negative")
+
+                n_pos = int(is_pos.sum())
+                n_neg = int(is_neg.sum())
+
+                if (n_pos + n_neg) == 0:
+                    st.info("Não há registros Positive/Negative no período/projeto selecionado.")
+                else:
+                    df_pn = pd.DataFrame({
+                        "Classe": ["Positive", "Negative"],
+                        "Qtd": [n_pos, n_neg]
+                    })
+
+                    ch_pn = (
+                        alt.Chart(df_pn)
+                        .mark_bar()
+                        .encode(
+                            x=alt.X("Classe:N", title=None),
+                            y=alt.Y("Qtd:Q", title="Test Cases"),
+                            color=alt.Color(
+                                "Classe:N",
+                                legend=None,
+                                scale=alt.Scale(
+                                    domain=["Positive", "Negative"],
+                                    range=["#22c55e", "#ef4444"]  # verde / vermelho
+                                ),
+                            ),
+                            tooltip=[alt.Tooltip("Classe:N"), alt.Tooltip("Qtd:Q", title="Quantidade")],
+                        )
+                        .properties(height=220)
+                    )
+
+                    st.altair_chart(ch_pn, use_container_width=True)
+
     with cC:
         st.markdown("#### Automated run × Manual run")
         if f_ze.empty or "automated" not in f_ze.columns:
