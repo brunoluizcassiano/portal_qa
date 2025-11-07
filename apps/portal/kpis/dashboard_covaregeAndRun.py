@@ -686,6 +686,121 @@ def pagina_dashboard_coverage_and_run():
             ).properties(height=220)
             st.altair_chart(ch, use_container_width=True)
 
+    st.markdown("---")
+
+    # ---------------- Test evolution (mensal) ----------------
+    st.markdown("#### Test evolution (mensal)")
+
+    if f_ze.empty:
+        st.info("Sem dados de execuções (Zephyr Executions).")
+    else:
+        # colunas prováveis de data da execução
+        dt_col = _find_col_norm(
+            f_ze,
+            ["execution date", "executed at", "executedon", "created_date", "created", "start date", "startedon"]
+        )
+        # chaves para fazer join Execução -> Test Case
+        key_exec = _find_col_norm(f_ze, ["test case key", "testcasekey", "testcase key", "testcase.id", "testcase"])
+        key_tc   = _find_col_norm(f_zc, ["key", "testcase key", "id"])
+        auto_tc  = _find_col_norm(f_zc, ["custom fields.automation status", "customfields.automation status", "automation status"])
+
+        df_e = f_ze.copy()
+        if dt_col:
+            df_e[dt_col] = pd.to_datetime(df_e[dt_col], errors="coerce", utc=True).dt.tz_localize(None)
+            df_e = df_e.dropna(subset=[dt_col])
+            df_e["month"] = df_e[dt_col].dt.to_period("M").dt.to_timestamp()
+        else:
+            df_e = pd.DataFrame(columns=["month"])
+
+        # classifica run como automated via status do test case
+        if not df_e.empty and key_exec and key_tc and auto_tc:
+            map_tc = f_zc[[key_tc, auto_tc]].copy()
+            map_tc.columns = ["tc_key", "auto_status"]
+            map_tc["is_auto"] = (
+                map_tc["auto_status"]
+                .astype(str).str.replace("\xa0", " ").str.strip().str.lower()
+                .eq("automated")
+            )
+            df_e["tc_key"] = df_e[key_exec].astype(str)
+            df_e = df_e.merge(map_tc[["tc_key", "is_auto"]], on="tc_key", how="left")
+        else:
+            df_e["is_auto"] = False  # fallback seguro
+
+        if df_e.empty:
+            st.info("Sem dados suficientes para evolução mensal.")
+        else:
+            g = df_e.groupby(["month", "is_auto"]).size().reset_index(name="runs")
+            piv = g.pivot(index="month", columns="is_auto", values="runs").fillna(0)
+            piv = piv.rename(columns={True: "Automated Run", False: "Manual Run"}).reset_index()
+
+            line = (
+                alt.Chart(piv)
+                .transform_fold(["Automated Run", "Manual Run"], as_=["Tipo", "Runs"])
+                .mark_line()
+                .encode(
+                    x=alt.X("month:T", title="Mês"),
+                    y=alt.Y("Runs:Q", title="Runs"),
+                    color=alt.Color("Tipo:N", scale=alt.Scale(domain=["Automated Run", "Manual Run"]))
+                )
+                .properties(height=240)
+            )
+            st.altair_chart(line, use_container_width=True)
+
+    # ---------------- Automation in regressive (por Test Case) ----------------
+    st.markdown("#### Automation in regressive")
+
+    if f_zc.empty:
+        st.info("Sem dados de casos de teste (Zephyr Test Cases).")
+    else:
+        tt_col  = _find_col_norm(f_zc, ["custom fields.test type", "customfields.test type", "test type"])
+        auto_tc = _find_col_norm(f_zc, ["custom fields.automation status", "customfields.automation status", "automation status"])
+
+        if not tt_col or not auto_tc:
+            st.info("Colunas 'Test Type' / 'Automation Status' não encontradas nos Test Cases.")
+        else:
+            s_type = f_zc[tt_col].astype(str).str.replace("\xa0", " ").str.strip().str.lower()
+            s_auto = f_zc[auto_tc].astype(str).str.replace("\xa0", " ").str.strip().str.lower()
+
+            reg_mask     = s_type.str.contains(r"\bregress", na=False)
+            not_app_mask = s_auto.isin({"n/a", "na"}) | s_auto.str.contains("not applic|nor applic", na=False)
+
+            base = f_zc[reg_mask & ~not_app_mask].copy()
+            if base.empty:
+                st.info("Sem registros Regression automatizáveis no período/projeto selecionado.")
+            else:
+                auto_reg = (s_auto.loc[base.index] == "automated").sum()
+                man_reg  = len(base) - auto_reg
+
+                df_reg = pd.DataFrame({
+                    "Categoria": ["Automated (Regression)", "Manual (Regression)"],
+                    "Qtd": [int(auto_reg), int(man_reg)]
+                })
+
+                bar = (
+                    alt.Chart(df_reg)
+                    .mark_bar()
+                    .encode(
+                        x=alt.X("Categoria:N", title=None),
+                        y=alt.Y("Qtd:Q", title="Test Cases"),
+                        color=alt.Color(
+                            "Categoria:N",
+                            legend=None,
+                            scale=alt.Scale(
+                                domain=["Automated (Regression)", "Manual (Regression)"],
+                                range=["#10B981", "#6B7280"]
+                            ),
+                        ),
+                        tooltip=[alt.Tooltip("Categoria:N"), alt.Tooltip("Qtd:Q", title="Quantidade")],
+                    )
+                    .properties(height=220)
+                )
+                st.altair_chart(bar, use_container_width=True)
+
+                # opcional: métrica de % automatizado em Regression
+                total_reg = int(len(base))
+                pct = (auto_reg / total_reg * 100.0) if total_reg else 0.0
+                st.caption(f"**% Automated em Regression**: {pct:.2f}%  (Automated {auto_reg} de {total_reg})")
+
 
 if __name__ == "__main__":
     pagina_dashboard_coverage_and_run()
