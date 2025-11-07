@@ -97,13 +97,11 @@ def _extract_issue_ids_from_testcases(df_zc: pd.DataFrame) -> pd.DataFrame:
     frames = []
 
     # 1) Colunas de ID explícito
-    # cobrimos 'links.issues.issue id', 'links.issues.id', 'links.issues.issueid'
     id_like = [k for k in cols_norm.keys() if re.fullmatch(r"links\.issues\.(.*\sid|id)$", k)]
     for k in id_like:
         col = cols_norm[k]
         tmp = df[[tc_col, col]].dropna()
         if not tmp.empty:
-            # aceita "123, 456" ou listas serializadas
             s = tmp[col].astype(str)
             vals = s.str.findall(r"\d+")
             tmp = tmp.assign(_id=vals).explode("_id")
@@ -371,6 +369,75 @@ def pagina_dashboard_coverage_and_run():
     f_zc    = _f_proj(_f_period_created(df_zc),    sel_project)
     f_ze    = _f_proj(_f_period_exec(df_ze),       sel_project)
 
+    # ===================== RUNS & CYCLES (robusto) =====================
+    # Vamos classificar runs via Automation Status do Test Case (join Execução -> Test Case)
+    n_auto_run = n_manual_run = n_total_run = n_cycles = 0
+    is_auto_run_series = pd.Series(dtype="bool")
+    e = pd.DataFrame()
+
+    if not f_ze.empty:
+        e = f_ze.copy()
+
+        # garante 'month' a partir da executed_date
+        if "executed_date" in e.columns:
+            e["month"] = pd.to_datetime(e["executed_date"], errors="coerce").dt.strftime("%Y-%m")
+
+        # chaves
+        tc_key_exec = _find_col_norm(
+            e,
+            [
+                "test case key", "testcasekey", "testcase key",
+                "testcase.id", "testcase", "testcaseid", "testcase key",
+                "testcase.key", "test case id", "testcasekey"
+            ]
+        )
+        tc_key_tc   = _find_col_norm(df_zc, ["key", "testcase key", "id"])
+
+        # mapa do test case
+        proj_col_tc = _find_col_norm(df_zc, ["projectkey", "project key", "project.key", "project"])
+        auto_col_tc = _find_col_norm(df_zc, ["custom fields.automation status", "customfields.automation status", "automation status"])
+
+        if tc_key_exec and tc_key_tc:
+            map_cols = {"tc_key": tc_key_tc}
+            if proj_col_tc: map_cols["proj_key"] = proj_col_tc
+            if auto_col_tc: map_cols["auto_sts"] = auto_col_tc
+
+            tc_map = df_zc[list(map_cols.values())].copy()
+            tc_map.columns = list(map_cols.keys())
+
+            e["tc_key"] = e[tc_key_exec].astype(str)
+            e = e.merge(tc_map, on="tc_key", how="left")
+
+            # re-aplica filtro de projeto após o join usando project do Test Case (mais confiável)
+            if sel_project and str(sel_project).lower() not in {"todos", "all"} and "proj_key" in e.columns:
+                mask_proj = (
+                    e["proj_key"].astype(str)
+                    .str.replace("\xa0", " ").str.strip().str.upper()
+                    .eq(str(sel_project).upper())
+                )
+                e = e[mask_proj].copy()
+
+        # classificação de run automatizado
+        if "auto_sts" in e.columns:
+            s_auto = (
+                e["auto_sts"].astype(str)
+                .str.replace("\xa0", " ")
+                .str.strip()
+                .str.lower()
+            )
+            is_auto_run_series = s_auto.eq("automated")
+        else:
+            # fallback: usa coluna 'automated' booleana da execução (se existir)
+            is_auto_run_series = _is_automated_bool_series(e.get("automated", pd.Series(False, index=e.index)))
+
+        n_auto_run  = int(is_auto_run_series.sum())
+        n_total_run = int(len(e))
+        n_manual_run = int(n_total_run - n_auto_run)
+
+        cyc_col = _find_col_norm(e, ["test cycle key", "testcyclekey", "testcycle.key", "testcycle.id", "cycle key", "cycle id", "cycle", "testcycle"])
+        n_cycles = int(e[cyc_col].dropna().astype(str).nunique()) if cyc_col else 0
+    # =================== /RUNS & CYCLES ===================
+
     # ---------------- Cards topo ----------------
     col1 = st.columns(4)
     with col1[0]:
@@ -401,12 +468,12 @@ def pagina_dashboard_coverage_and_run():
         total_tests     = int(len(f_zc))
         manual_tests    = int(total_tests - automated_tests)
 
-    if total_tests == 0 and not f_ze.empty:
-        key_run = _first_col(f_ze, ["testCaseKey","testCase.key","testKey","testCaseId","testId"])
+    if total_tests == 0 and not e.empty:
+        # fallback raro: estima a partir de execuções
+        key_run = _first_col(e, ["testCaseKey","testCase.key","testKey","testCaseId","testId"])
         if key_run:
-            z = f_ze.dropna(subset=[key_run]).copy()
-            is_auto_run = _is_automated_bool_series(z.get("automated", pd.Series(dtype="object")))
-            auto_by_case = z.assign(_auto=is_auto_run).groupby(z[key_run].astype(str))["_auto"].any()
+            z = e.dropna(subset=[key_run]).copy()
+            auto_by_case = z.assign(_auto=is_auto_run_series).groupby(z[key_run].astype(str))["_auto"].any()
             automated_tests = int(auto_by_case.sum())
             manual_tests    = int((~auto_by_case).sum())
             total_tests     = int(auto_by_case.shape[0])
@@ -415,23 +482,13 @@ def pagina_dashboard_coverage_and_run():
     with col2[0]: st.metric("# Manual Test",    int(manual_tests))
     with col2[1]: st.metric("# Automated Test", int(automated_tests))
     with col2[2]: st.metric("# Total Test",     int(total_tests))
-    with col2[3]:
-        if not f_ze.empty:
-            cycle_col = _first_col(f_ze, ["testCycle.key","testCycle.id","cycleKey","cycleId"])
-            cycles = f_ze[cycle_col].dropna().astype(str).nunique() if cycle_col else f_ze.groupby(["month","issueKey"]).ngroups
-        else:
-            cycles = 0
-        st.metric("# Test Cycle", int(cycles))
+    with col2[3]: st.metric("# Test Cycle",     int(n_cycles))
 
     col3 = st.columns(4)
-    with col3[0]:
-        man_runs = int((~_is_automated_bool_series(f_ze.get("automated", pd.Series(dtype="object")))).sum()) if not f_ze.empty else 0
-        st.metric("# Manual Run", man_runs)
-    with col3[1]:
-        aut_runs = int((_is_automated_bool_series(f_ze.get("automated", pd.Series(dtype="object")))).sum()) if not f_ze.empty else 0
-        st.metric("# Automated Run", aut_runs)
+    with col3[0]: st.metric("# Manual Run",     int(n_manual_run))
+    with col3[1]: st.metric("# Automated Run",  int(n_auto_run))
     with col3[2]:
-        total_runs = int(man_runs + aut_runs)
+        total_runs = int(n_total_run)
         st.metric("# Total Run", total_runs)
 
     # ---------------- CÁLCULOS pedidinhos ----------------
@@ -488,7 +545,7 @@ def pagina_dashboard_coverage_and_run():
             epic_closed = 0
         st.metric("# QTD Epic Closed", int(epic_closed))
     with col4[2]: st.metric("% Automated Test", f"{_pct(automated_tests, total_tests):.2f}%")
-    with col4[3]: st.metric("% Automated Run",  f"{_pct(aut_runs if 'aut_runs' in locals() else 0, total_runs if 'total_runs' in locals() else 0):.2f}%")
+    with col4[3]: st.metric("% Automated Run",  f"{_pct(n_auto_run, n_total_run):.2f}%")
 
     st.markdown("---")
 
@@ -499,7 +556,6 @@ def pagina_dashboard_coverage_and_run():
         st.info("Sem dados de casos de teste (Zephyr Test Cases).")
     else:
         # Contagens já alinhadas com sua lógica
-        # usa a própria coluna de Automation Status (aceita variações de nome)
         auto_col = _find_col_norm(
             f_zc,
             ["customfields.automation status", "custom fields.automation status", "automation status"]
@@ -525,12 +581,11 @@ def pagina_dashboard_coverage_and_run():
             {"etapa": "- Automated",        "cat": "auto",     "y0": n_total - n_not_app - n_auto,"y1": n_total - n_not_app,          "valor_abs": n_auto},
             {"etapa": "Backlog",            "cat": "backlog",  "y0": 0,                           "y1": n_backlog,                    "valor_abs": n_backlog},
         ])
-        # posição do rótulo (em barras “negativas” o topo é y0, nas “positivas” é y1)
         wf["y_label"] = np.where(wf["cat"].isin(["not_app", "auto"]), wf["y0"], wf["y1"])
 
         color_scale = alt.Scale(
             domain=["total", "not_app", "auto", "backlog"],
-            range=["#9CA3AF", "#A855F7", "#1FB6FF", "#F59E0B"]  # cinza, roxo, azul, âmbar
+            range=["#9CA3AF", "#A855F7", "#1FB6FF", "#F59E0B"]
         )
 
         waterfall = (
@@ -597,7 +652,6 @@ def pagina_dashboard_coverage_and_run():
         if f_zc.empty:
             st.info("Sem dados de casos de teste (Zephyr Test Cases).")
         else:
-            # procura a coluna "Custom Fields.Test Type" considerando variações
             tt_col = _find_col_norm(
                 f_zc,
                 ["custom fields.test type", "customfields.test type", "test type"]
@@ -613,8 +667,6 @@ def pagina_dashboard_coverage_and_run():
                     .str.strip()
                     .str.lower()
                 )
-
-                # Regression x qualquer outro valor
                 is_reg = s.str.contains(r"\bregress", na=False)
 
                 df_rr = pd.DataFrame({
@@ -633,7 +685,7 @@ def pagina_dashboard_coverage_and_run():
                             legend=None,
                             scale=alt.Scale(
                                 domain=["Regression", "Others"],
-                                range=["#10B981", "#6B7280"]  # verde p/ Regression, cinza p/ Others
+                                range=["#10B981", "#6B7280"]
                             ),
                         ),
                         tooltip=[alt.Tooltip("Categoria:N"), alt.Tooltip("Qtd:Q", title="Quantidade")],
@@ -650,7 +702,6 @@ def pagina_dashboard_coverage_and_run():
         if f_zc.empty:
             st.info("Sem dados de casos de teste (Zephyr Test Cases).")
         else:
-            # procura a coluna considerando variações/espacos/NBSP
             tc_col = _find_col_norm(
                 f_zc,
                 ["custom fields.test class", "customfields.test class", "test class"]
@@ -691,7 +742,7 @@ def pagina_dashboard_coverage_and_run():
                                 legend=None,
                                 scale=alt.Scale(
                                     domain=["Positive", "Negative"],
-                                    range=["#22c55e", "#ef4444"]  # verde / vermelho
+                                    range=["#22c55e", "#ef4444"]
                                 ),
                             ),
                             tooltip=[alt.Tooltip("Classe:N"), alt.Tooltip("Qtd:Q", title="Quantidade")],
@@ -703,11 +754,12 @@ def pagina_dashboard_coverage_and_run():
 
     with cC:
         st.markdown("#### Automated run × Manual run")
-        if f_ze.empty or "automated" not in f_ze.columns:
+        if e.empty:
             st.info("Sem execuções no período.")
         else:
-            is_auto = _is_automated_bool_series(f_ze["automated"])
-            df_am = pd.DataFrame({"tipo": ["Automated","Manual"], "runs": [int(is_auto.sum()), int((~is_auto).sum())]})
+            df_am = pd.DataFrame(
+                {"tipo": ["Automated","Manual"], "runs": [int(n_auto_run), int(n_manual_run)]}
+            )
             ch = alt.Chart(df_am).mark_bar().encode(
                 x=alt.X("tipo:N", title=None), y=alt.Y("runs:Q", title="Runs"),
                 color=alt.Color("tipo:N", legend=None)
@@ -718,11 +770,18 @@ def pagina_dashboard_coverage_and_run():
 
     # ---------------- Test evolution (linha mensal) ----------------
     st.markdown("#### Test evolution (mensal)")
-    if f_ze.empty:
+    if e.empty:
         st.info("Sem execuções no período selecionado.")
     else:
-        z = f_ze.copy()
-        z["is_auto"] = z.get("automated", pd.Series(dtype="object")).astype(str).str.lower().isin(["1","true","yes"])
+        z = e.copy()
+        # garante month
+        if "month" not in z.columns or z["month"].isna().all():
+            if "executed_date" in z.columns:
+                z["month"] = pd.to_datetime(z["executed_date"], errors="coerce").dt.strftime("%Y-%m")
+            else:
+                z["month"] = "0000-00"
+        z["is_auto"] = is_auto_run_series.reindex(z.index).fillna(False)
+
         df_month = z.groupby(["month","is_auto"]).size().reset_index(name="runs")
         df_month["tipo"] = df_month["is_auto"].map({True:"Automated Run", False:"Manual Run"})
         try:
@@ -787,7 +846,6 @@ def pagina_dashboard_coverage_and_run():
                 )
                 st.altair_chart(bar, use_container_width=True)
 
-                # opcional: métrica de % automatizado em Regression
                 total_reg = int(len(base))
                 pct = (auto_reg / total_reg * 100.0) if total_reg else 0.0
                 st.caption(f"**% Automated em Regression**: {pct:.2f}%  (Automated {auto_reg} de {total_reg})")
