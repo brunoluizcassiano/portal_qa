@@ -47,32 +47,20 @@ def _first_col(df: pd.DataFrame, names: list[str]) -> str | None:
     return None
 
 def _is_automated_bool_series(s: pd.Series) -> pd.Series:
-    """Interpreta booleanos/strings comuns para 'automatizado'."""
+    """Interpreta booleanos/strings comuns para 'automatizado' (usado em RUNS)."""
     return s.astype(str).str.strip().str.lower().isin(
         ["1", "true", "y", "yes", "sim", "automated"]
     )
 
-# IDs do ZephyrScale que significam "Automated" no custom field.
-# Por padrão coloco {5360312}. Ajuste via env: AUTO_STATUS_AUTO_IDS="5360312,12345"
-_AUTO_IDS_ENV = os.getenv("AUTO_STATUS_AUTO_IDS", "5360312")
-AUTO_STATUS_AUTO_IDS = {int(x) for x in re.findall(r"\d+", _AUTO_IDS_ENV)}
-
-def _is_automated_from_custom_status(value) -> bool:
+def _is_automated_from_custom_status_exact(value) -> bool:
     """
-    Interpreta o valor de 'customFields.Automation Status':
-    - Se contiver 'automat' no texto => True
-    - Se houver dígitos, considera Automated se ID ∈ AUTO_STATUS_AUTO_IDS
-    - Caso contrário => False
+    Interpreta o valor de 'customFields.Automation Status' para CASES:
+    - Somente 'Automated' (match exato, case-insensitive) conta como automatizado.
+    - Qualquer outro valor é Manual.
     """
     if pd.isna(value):
         return False
-    txt = str(value).strip()
-    if "automat" in txt.lower():  # 'Automated', 'Automation', etc.
-        return True
-    m = re.search(r"(\d+)", txt)  # extrai ID (ex.: .../statuses/5360312)
-    if m:
-        return int(m.group(1)) in AUTO_STATUS_AUTO_IDS
-    return False
+    return str(value).strip().lower() == "automated"
 
 # --------------------------------------------------------------------
 # Página
@@ -338,7 +326,7 @@ def pagina_dashboard_coverage_and_run():
         _status_series(df_epic_raw)
     )) if not df_epic_raw.empty and "key" in df_epic_raw.columns else {}
 
-    # ----- TEST CASES (com suporte a customFields.Automation Status)
+    # ----- TEST CASES (usando APENAS customFields.Automation Status com match exato) -----
     auto_series_cases = pd.Series(dtype="bool")
     manual_tests = automated_tests = total_tests = 0
 
@@ -346,25 +334,18 @@ def pagina_dashboard_coverage_and_run():
         auto_col = _first_col(
             f_zc,
             [
-                "automated", "isAutomated", "automation", "automationFlag", "is_automated",
-                "customFields.Automation Status",  # <--- campo do Zephyr
+                "customFields.Automation Status",  # <- regra oficial
+                # (outros nomes não serão usados para os cards de cases)
             ],
         )
         if auto_col:
-            if auto_col == "customFields.Automation Status":
-                auto_series_cases = f_zc[auto_col].apply(_is_automated_from_custom_status)
-            else:
-                auto_series_cases = _is_automated_bool_series(f_zc[auto_col])
+            auto_series_cases = f_zc[auto_col].apply(_is_automated_from_custom_status_exact)
         else:
             auto_series_cases = pd.Series(False, index=f_zc.index)
 
-        not_app = f_zc.get("status", pd.Series(dtype="object")).astype(str).str.contains(
-            "not applic", case=False, na=False
-        )
-
         automated_tests = int(auto_series_cases.sum())
-        manual_tests    = int((~auto_series_cases & (~not_app)).sum())
         total_tests     = int(len(f_zc))
+        manual_tests    = int(total_tests - automated_tests)  # tudo que não for 'Automated' é Manual
 
     # Fallback por RUNS (se não houver cases no período)
     if total_tests == 0 and not f_ze.empty:
@@ -446,14 +427,11 @@ def pagina_dashboard_coverage_and_run():
         if total_tests == 0:
             st.info("Sem dados de casos de teste (Zephyr Test Cases).")
     else:
-        auto_col = _first_col(
-            f_zc,
-            ["automated", "isAutomated", "automation", "automationFlag", "is_automated", "customFields.Automation Status"],
-        )
-        if auto_col == "customFields.Automation Status":
-            auto_mask = f_zc[auto_col].apply(_is_automated_from_custom_status)
-        elif auto_col:
-            auto_mask = _is_automated_bool_series(f_zc[auto_col])
+        # Para o backlog mantemos a categoria "Not applicable" se existir,
+        # mas o critério de automated continua sendo match exato 'Automated'.
+        auto_col = _first_col(f_zc, ["customFields.Automation Status"])
+        if auto_col:
+            auto_mask = f_zc[auto_col].apply(_is_automated_from_custom_status_exact)
         else:
             auto_mask = pd.Series(False, index=f_zc.index)
 
