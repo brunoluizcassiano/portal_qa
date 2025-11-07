@@ -156,6 +156,11 @@ def _is_not_applicable_from_custom_status(value) -> bool:
         return True
     return ("not applic" in s) or ("nor applic" in s)
 
+# candidatos de coluna para projeto/tribo (filtro)
+_PROJ_CANDS = [
+    "projectkey", "project key", "project.key", "project", "project.name", "project name",
+    "domain", "tribe", "tribo", "tribo (projeto)"
+]
 
 # --------------------------------------------------------------------
 # Página
@@ -233,17 +238,28 @@ def pagina_dashboard_coverage_and_run():
         df_zc["projectKey"] = df_zc["projectKey"].astype("category")
 
     # ---------------- Filtros topo ----------------
-    if not df_proj.empty and {"name","key"}.issubset(df_proj.columns):
-        projects = ["Todos"] + sorted(df_proj["key"].dropna().astype(str).unique().tolist())
-    else:
-        pref = pd.concat([s for s in [
-            df_story.get("projectKey", pd.Series(dtype="object")),
-            df_epic.get("projectKey", pd.Series(dtype="object")),
-            df_func.get("projectKey", pd.Series(dtype="object")),
-            df_ze.get("projectKey", pd.Series(dtype="object")),
-            df_zc.get("projectKey", pd.Series(dtype="object")),
-        ] if not s.empty], ignore_index=True)
-        projects = ["Todos"] + sorted([p for p in pref.dropna().astype(str).unique().tolist() if p])
+    # Opções de projeto/tribo coletadas de TODAS as bases
+    def _collect_projects(df: pd.DataFrame) -> list[str]:
+        if df is None or df.empty:
+            return []
+        col = _find_col_norm(df, _PROJ_CANDS)
+        if not col:
+            return []
+        return (
+            df[col]
+            .dropna()
+            .astype(str)
+            .str.replace("\xa0", " ")
+            .str.strip()
+            .str.upper()
+            .tolist()
+        )
+
+    candidatos = set()
+    for _df in [df_story, df_epic, df_func, df_ze, df_zc, df_proj]:
+        candidatos.update(_collect_projects(_df))
+
+    projects = ["Todos"] + sorted([p for p in candidatos if p])
 
     # Período base
     if not df_ze.empty and "executed_date" in df_ze.columns:
@@ -279,7 +295,7 @@ def pagina_dashboard_coverage_and_run():
 
     c0, c1, c2 = st.columns([0.50, 0.30, 0.20])
     with c0:
-        sel_project = st.selectbox("Domain", options=projects, index=0)
+        sel_project = st.selectbox("Tribo (Projeto)", options=projects, index=0)
     with c1: st.caption("")
     with c2:
         dt = read_last_update(KPI_LASTUPDATE)
@@ -299,10 +315,16 @@ def pagina_dashboard_coverage_and_run():
 
     d_start, d_end = st.session_state["periodo_master_car"]
 
-    # ---------------- Filtros Domain/Período ----------------
-    def _f_proj(df: pd.DataFrame, col="projectKey") -> pd.DataFrame:
-        if df.empty or sel_project == "Todos": return df
-        return df[df.get(col, "").astype(str) == str(sel_project)].copy()
+    # ---------------- Filtros Tribo/Período ----------------
+    def _f_proj(df: pd.DataFrame, proj_sel: str) -> pd.DataFrame:
+        if df is None or df.empty or not proj_sel or proj_sel == "Todos":
+            return df
+        col = _find_col_norm(df, _PROJ_CANDS)
+        if not col:
+            # base sem coluna de projeto → devolve como está
+            return df
+        s = df[col].astype(str).str.replace("\xa0", " ").str.strip().str.upper()
+        return df.loc[s.eq(proj_sel)].copy()
 
     def _f_period_created(df: pd.DataFrame) -> pd.DataFrame:
         if df.empty or "created_date" not in df.columns: return df
@@ -342,20 +364,28 @@ def pagina_dashboard_coverage_and_run():
             df2 = df.copy(); df2["executed_date"] = s2
             return df2[(s2 >= d_start) & (s2 <= d_end)].copy()
 
-    f_story = _f_proj(_f_period_created(df_story))
-    f_epic  = _f_proj(_f_period_created(df_epic))
-    f_func  = _f_proj(_f_period_created(df_func))
-    f_zc    = _f_proj(_f_period_created(df_zc))
-    f_ze    = _f_proj(_f_period_exec(df_ze))
+    # aplicar SEMPRE período + projeto
+    f_story = _f_proj(_f_period_created(df_story), sel_project)
+    f_epic  = _f_proj(_f_period_created(df_epic),  sel_project)
+    f_func  = _f_proj(_f_period_created(df_func),  sel_project)
+    f_zc    = _f_proj(_f_period_created(df_zc),    sel_project)
+    f_ze    = _f_proj(_f_period_exec(df_ze),       sel_project)
 
     # ---------------- Cards topo ----------------
     col1 = st.columns(4)
     with col1[0]:
-        if not df_proj.empty:
-            domains = len(df_proj if sel_project == "Todos" else df_proj[df_proj["key"].astype(str) == str(sel_project)])
+        if not df_proj.empty and {"name","key"}.issubset(df_proj.columns):
+            domains = len(df_proj if sel_project == "Todos" else df_proj[df_proj["key"].astype(str).str.upper().eq(str(sel_project).upper())])
         else:
-            domains = len(set([*f_story.get("projectKey", pd.Series(dtype="object")).dropna().unique(),
-                               *f_epic.get("projectKey", pd.Series(dtype="object")).dropna().unique()]))
+            # conta quantos projetos distintos estão presentes após filtro
+            base = pd.concat(
+                [s for s in [
+                    f_story.get("projectKey", pd.Series(dtype="object")),
+                    f_epic.get("projectKey",  pd.Series(dtype="object")),
+                ] if not s.empty],
+                ignore_index=True
+            )
+            domains = base.dropna().astype(str).str.upper().nunique()
         st.metric("Domain", int(domains) if pd.notna(domains) else 0)
     with col1[1]: st.metric("QTD Story", int(f_story.shape[0]))
     with col1[2]: st.metric("QTD Epic",  int(f_epic.shape[0]))
@@ -488,7 +518,6 @@ def pagina_dashboard_coverage_and_run():
         n_not_app  = int(not_app_mask.sum())
         n_backlog  = max(0, n_total - n_auto - n_not_app)
 
-
         # ---------- Waterfall: Total -> -Not applicable -> -Automated -> Backlog ----------
         wf = pd.DataFrame([
             {"etapa": "Total tests",        "cat": "total",    "y0": 0,                           "y1": n_total,                      "valor_abs": n_total},
@@ -558,7 +587,6 @@ def pagina_dashboard_coverage_and_run():
         c1.metric("Automated", n_auto)
         c2.metric("Backlog automated", n_backlog)
         c3.metric("Not applicable automated", n_not_app)
-
 
     # ---------------- Gráficos (mantidos) ----------------
     cA, cB, cC = st.columns(3)
