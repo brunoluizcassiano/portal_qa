@@ -484,7 +484,7 @@ def pagina_dashboard_coverage_and_run():
                 ignore_index=True
             )
             domains = base.dropna().astype(str).str.upper().nunique()
-        st.metric("Domain", int(domains) if pd.notna(domains) else 0)
+        st.metric("Tribo", int(domains) if pd.notna(domains) else 0)
     with col1[1]: st.metric("QTD Story", int(f_story.shape[0]))
     with col1[2]: st.metric("QTD Epic",  int(f_epic.shape[0]))
     cov_slot = col1[3].empty()            # <- placeholder ÚNICO
@@ -688,6 +688,8 @@ def pagina_dashboard_coverage_and_run():
         c2.metric("Backlog automated", n_backlog)
         c3.metric("Not applicable automated", n_not_app)
 
+    st.markdown("---")
+
     # ---------------- Gráficos (mantidos) ----------------
     cA, cB, cC = st.columns(3)
     with cA:
@@ -834,6 +836,8 @@ def pagina_dashboard_coverage_and_run():
         ).properties(height=300)
         st.altair_chart(ch, use_container_width=True)
 
+    st.markdown("---")
+    
     # ---------------- Automation in regressive (por Test Case) ----------------
     st.markdown("#### Automation in regressive")
 
