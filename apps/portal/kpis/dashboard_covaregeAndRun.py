@@ -132,6 +132,31 @@ def _extract_issue_ids_from_testcases(df_zc: pd.DataFrame) -> pd.DataFrame:
     df_links = df_links.drop_duplicates().dropna(subset=["issue_id"])
     return df_links
 
+def _find_col_norm(df: pd.DataFrame, candidates: list[str]) -> str | None:
+    """Procura uma coluna usando nomes normalizados (lower, sem múltiplos espaços/NBSP)."""
+    if df is None or df.empty:
+        return None
+    mapping = {}
+    for c in df.columns:
+        nc = str(c).replace("\xa0", " ")
+        nc = re.sub(r"\s+", " ", nc).strip().lower()
+        mapping[nc] = c
+    for cand in candidates:
+        nc = re.sub(r"\s+", " ", str(cand).strip().lower())
+        if nc in mapping:
+            return mapping[nc]
+    return None
+
+def _is_not_applicable_from_custom_status(value) -> bool:
+    """True para 'Not Applicable' (inclui variações: 'nor applicable', 'n/a', 'na')."""
+    if pd.isna(value):
+        return False
+    s = str(value).replace("\xa0", " ").strip().lower()
+    if s in {"n/a", "na"}:
+        return True
+    return ("not applic" in s) or ("nor applic" in s)
+
+
 # --------------------------------------------------------------------
 # Página
 # --------------------------------------------------------------------
@@ -445,14 +470,25 @@ def pagina_dashboard_coverage_and_run():
         st.info("Sem dados de casos de teste (Zephyr Test Cases).")
     else:
         # Contagens já alinhadas com sua lógica
-        auto_col  = _first_col(f_zc, ["customFields.Automation Status"])
-        auto_mask = f_zc[auto_col].apply(_is_automated_from_custom_status_exact) if auto_col else pd.Series(False, index=f_zc.index)
-        not_app   = f_zc.get("status", pd.Series(dtype="object")).astype(str).str.contains("not applic", case=False, na=False)
+        # usa a própria coluna de Automation Status (aceita variações de nome)
+        auto_col = _find_col_norm(
+            f_zc,
+            ["customfields.automation status", "custom fields.automation status", "automation status"]
+        )
+
+        if auto_col:
+            s_status = f_zc[auto_col].astype(str).str.replace("\xa0", " ").str.strip().str.lower()
+            auto_mask = s_status.eq("automated")
+            not_app_mask = s_status.apply(_is_not_applicable_from_custom_status)
+        else:
+            auto_mask = pd.Series(False, index=f_zc.index)
+            not_app_mask = pd.Series(False, index=f_zc.index)
 
         n_total    = int(len(f_zc))
         n_auto     = int(auto_mask.sum())
-        n_not_app  = int(not_app.sum())
+        n_not_app  = int(not_app_mask.sum())
         n_backlog  = max(0, n_total - n_auto - n_not_app)
+
 
         # ---------- Waterfall: Total -> -Not applicable -> -Automated -> Backlog ----------
         wf = pd.DataFrame([
