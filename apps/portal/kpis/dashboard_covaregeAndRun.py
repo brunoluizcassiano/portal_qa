@@ -438,24 +438,76 @@ def pagina_dashboard_coverage_and_run():
     st.markdown("---")
 
     # ---------------- Automated Backlog (mantido) ----------------
+        # ---------------- Automated Backlog (meio-donut estilo Power BI) ----------------
     st.markdown("#### Automated Backlog")
+
     if f_zc.empty:
-        if total_tests == 0:
-            st.info("Sem dados de casos de teste (Zephyr Test Cases).")
+        st.info("Sem dados de casos de teste (Zephyr Test Cases).")
     else:
-        auto_col = _first_col(f_zc, ["customFields.Automation Status"])
+        # 1) Contagens
+        auto_col  = _first_col(f_zc, ["customFields.Automation Status"])
         auto_mask = f_zc[auto_col].apply(_is_automated_from_custom_status_exact) if auto_col else pd.Series(False, index=f_zc.index)
         not_app   = f_zc.get("status", pd.Series(dtype="object")).astype(str).str.contains("not applic", case=False, na=False)
-        n_auto, n_total, n_not_app = int(auto_mask.sum()), int(len(f_zc)), int(not_app.sum())
-        n_backlog = max(0, n_total - n_auto - n_not_app)
-        df_auto_stack = pd.DataFrame({"Categoria": ["Automated","Backlog automated","Not applicable"],
-                                      "Quantidade": [n_auto, n_backlog, n_not_app]})
-        chart_auto = alt.Chart(df_auto_stack).mark_bar().encode(
-            x=alt.X("Quantidade:Q", title="Quantidade"),
-            y=alt.Y("Categoria:N", sort=None, title=None),
-            color=alt.Color("Categoria:N", legend=None)
-        ).properties(height=120)
-        st.altair_chart(chart_auto, use_container_width=True)
+
+        n_total    = int(len(f_zc))
+        n_auto     = int(auto_mask.sum())
+        n_not_app  = int(not_app.sum())
+        n_backlog  = max(0, n_total - n_auto - n_not_app)
+        n_max_auto = max(0, n_total - n_not_app)  # “máximo possível” (Total - Not applicable)
+
+        if n_max_auto == 0:
+            st.info("Não há itens automatizáveis no período.")
+        else:
+            # 2) Meia-lua usando theta/theta2 (−180° a 0°)
+            deg_per_unit = 180.0 / n_max_auto
+            deg_auto     = n_auto * deg_per_unit
+            # duas fatias: Automated (−180 → −180+deg_auto) e Backlog (restante até 0)
+            df_gauge = pd.DataFrame({
+                "Categoria": ["Automated", "Backlog automated"],
+                "start":     [-180.0,          -180.0 + deg_auto],
+                "end":       [-180.0 + deg_auto, 0.0],
+                "Quantidade": [n_auto, n_backlog],
+            })
+
+            donut = (
+                alt.Chart(df_gauge)
+                .mark_arc(innerRadius=85, outerRadius=120)   # sem startAngle/endAngle no mark!
+                .encode(
+                    theta = alt.Theta("start:Q"),
+                    theta2= alt.Theta2("end:Q"),
+                    color = alt.Color(
+                        "Categoria:N",
+                        legend=None,
+                        scale=alt.Scale(
+                            domain=["Automated", "Backlog automated"],
+                            range=["#1fb6ff", "#6b7280"],  # destaque + neutro
+                        ),
+                    ),
+                    tooltip=[
+                        alt.Tooltip("Categoria:N", title="Categoria"),
+                        alt.Tooltip("Quantidade:Q", title="Quantidade"),
+                    ],
+                )
+                .properties(height=240)
+            )
+
+            # número de referência nas pontas: 0 | n_max_auto
+            labels_df = pd.DataFrame({"x": [-1, 1], "y": [0, 0], "txt": ["0", f"{n_max_auto}"]})
+            ref_labels = (
+                alt.Chart(labels_df)
+                .mark_text(fontSize=11, dy=65)
+                .encode(x="x:Q", y="y:Q", text="txt:N")
+                .properties(height=240)
+            )
+
+            st.altair_chart(donut + ref_labels, use_container_width=True)
+
+        # 3) Números abaixo (como no Power BI)
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Automated", n_auto)
+        c2.metric("Backlog automated", n_backlog)
+        c3.metric("Not applicable automated", n_not_app)
+
 
     # ---------------- Gráficos (mantidos) ----------------
     cA, cB, cC = st.columns(3)
