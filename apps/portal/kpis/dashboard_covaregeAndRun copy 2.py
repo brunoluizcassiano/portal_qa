@@ -4,7 +4,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import altair as alt
-# import plotly.graph_objects as go
 from datetime import date, timedelta
 from pandas.api.types import is_datetime64_any_dtype, is_datetime64tz_dtype
 
@@ -13,14 +12,6 @@ from .analytics.constants import (
     JIRA_EPIC, JIRA_STORY, JIRA_BUG, JIRA_SUBBUG, JIRA_PROJ,
     ZEPHYR_TC, ZEPHYR_EXEC_MAIN, ZEPHYR_EXEC_FALLBACK,
 )
-
-# Plotly é opcional; se não tiver instalado, o código cai em fallback Altair
-try:
-    import plotly.graph_objects as go
-    _HAS_PLOTLY = True
-except Exception:
-    _HAS_PLOTLY = False
-
 
 # FUNC é opcional no teu repo
 try:
@@ -88,38 +79,6 @@ def _status_series(df: pd.DataFrame) -> pd.Series:
 def _is_closed(status: str) -> bool:
     s = str(status).upper()
     return bool(re.search(r"(DONE|CLOSED|RESOLVED)", s))
-
-
-def _gauge_percent_plotly(percent: float, title: str = ""):
-    """Gauge semicírculo de % (0–100)."""
-    fig = go.Figure(go.Indicator(
-        mode="gauge+number",
-        value=max(0, min(100, percent)),
-        number={"suffix": "%", "font": {"size": 28}},
-        title={"text": title, "font": {"size": 14}},
-        gauge={
-            "shape": "angular",                # gauge
-            "axis": {"range": [0, 100]},
-            "bar": {"color": "#1FB6FF"},
-            "bgcolor": "rgba(0,0,0,0)",
-            "threshold": {"line": {"color": "#F59E0B", "width": 3}, "thickness": 0.75, "value": percent}
-        },
-        domain={"x": [0, 1], "y": [0, 0.5]}    # corta para meia-lua
-    ))
-    fig.update_layout(height=220, margin=dict(l=10, r=10, t=30, b=0))
-    return fig
-
-def _donut_backlog_plotly(total: int, automated: int, not_applicable: int, title: str = "Automated Backlog"):
-    """Donut de composição: Automated × Backlog × Not applicable."""
-    backlog = max(0, total - automated - not_applicable)
-    labels = ["Automated", "Backlog", "Not applicable"]
-    values = [automated, backlog, not_applicable]
-    colors = ["#1FB6FF", "#F59E0B", "#A855F7"]
-    fig = go.Figure(data=[go.Pie(labels=labels, values=values, hole=0.65,
-                                 textinfo="label+value", marker=dict(colors=colors))])
-    fig.update_layout(title=title, height=260, margin=dict(l=10, r=10, t=30, b=0),
-                      legend=dict(orientation="h", yanchor="bottom", y=-0.1, xanchor="center", x=0.5))
-    return fig
 
 # --------- Links por ID a partir do CSV de Test Cases ----------
 def _extract_issue_ids_from_testcases(df_zc: pd.DataFrame) -> pd.DataFrame:
@@ -660,83 +619,68 @@ def pagina_dashboard_coverage_and_run():
         n_not_app  = int(not_app_mask.sum())
         n_backlog  = max(0, n_total - n_auto - n_not_app)
 
-        # Se Plotly estiver disponível, mostra donut e gauge bonitos;
-        # caso contrário, segue com os gráficos Altair que você já tem.
-        if _HAS_PLOTLY:
-            # Donut de composição
-            # st.plotly_chart(_donut_backlog_plotly(n_total, n_auto, n_not_app, "Automated Backlog"), use_container_width=True)
+        # ---------- Waterfall: Total -> -Not applicable -> -Automated -> Backlog ----------
+        wf = pd.DataFrame([
+            {"etapa": "Total tests",        "cat": "total",    "y0": 0,                           "y1": n_total,                      "valor_abs": n_total},
+            {"etapa": "- Not applicable",   "cat": "not_app",  "y0": n_total - n_not_app,         "y1": n_total,                      "valor_abs": n_not_app},
+            {"etapa": "- Automated",        "cat": "auto",     "y0": n_total - n_not_app - n_auto,"y1": n_total - n_not_app,          "valor_abs": n_auto},
+            {"etapa": "Backlog",            "cat": "backlog",  "y0": 0,                           "y1": n_backlog,                    "valor_abs": n_backlog},
+        ])
+        wf["y_label"] = np.where(wf["cat"].isin(["not_app", "auto"]), wf["y0"], wf["y1"])
 
-            # Gauge (meia-lua) do % Automated Test
-            pct_auto = (n_auto / n_total * 100.0) if n_total else 0.0
-            st.plotly_chart(_gauge_percent_plotly(pct_auto, "% Automated Test"), use_container_width=True)
-        else:
-            # (mantém o que você já desenha hoje com Altair – sem mudanças)
-            st.altair_chart(waterfall + labels, use_container_width=True)
-            st.altair_chart(comp_bar, use_container_width=True)
+        color_scale = alt.Scale(
+            domain=["total", "not_app", "auto", "backlog"],
+            range=["#9CA3AF", "#A855F7", "#1FB6FF", "#F59E0B"]  # cinza, roxo, azul, âmbar
+        )
 
+        waterfall = (
+            alt.Chart(wf)
+            .mark_bar()
+            .encode(
+                x=alt.X("etapa:N", sort=["Total tests", "- Not applicable", "- Automated", "Backlog"], title=None),
+                y=alt.Y("y0:Q", title="Tests", scale=alt.Scale(domain=[0, max(n_total, n_backlog)])),
+                y2="y1:Q",
+                color=alt.Color("cat:N", legend=None, scale=color_scale),
+                tooltip=[
+                    alt.Tooltip("etapa:N", title="Etapa"),
+                    alt.Tooltip("valor_abs:Q", title="Quantidade"),
+                ],
+            )
+            .properties(height=240)
+        )
 
-        # # ---------- Waterfall: Total -> -Not applicable -> -Automated -> Backlog ----------
-        # wf = pd.DataFrame([
-        #     {"etapa": "Total tests",        "cat": "total",    "y0": 0,                           "y1": n_total,                      "valor_abs": n_total},
-        #     {"etapa": "- Not applicable",   "cat": "not_app",  "y0": n_total - n_not_app,         "y1": n_total,                      "valor_abs": n_not_app},
-        #     {"etapa": "- Automated",        "cat": "auto",     "y0": n_total - n_not_app - n_auto,"y1": n_total - n_not_app,          "valor_abs": n_auto},
-        #     {"etapa": "Backlog",            "cat": "backlog",  "y0": 0,                           "y1": n_backlog,                    "valor_abs": n_backlog},
-        # ])
-        # wf["y_label"] = np.where(wf["cat"].isin(["not_app", "auto"]), wf["y0"], wf["y1"])
+        labels = (
+            alt.Chart(wf)
+            .mark_text(fontSize=11, dy=-4)
+            .encode(
+                x="etapa:N",
+                y="y_label:Q",
+                text=alt.Text("valor_abs:Q")
+            )
+        )
 
-        # color_scale = alt.Scale(
-        #     domain=["total", "not_app", "auto", "backlog"],
-        #     range=["#9CA3AF", "#A855F7", "#1FB6FF", "#F59E0B"]  # cinza, roxo, azul, âmbar
-        # )
+        st.altair_chart(waterfall + labels, use_container_width=True)
 
-        # waterfall = (
-        #     alt.Chart(wf)
-        #     .mark_bar()
-        #     .encode(
-        #         x=alt.X("etapa:N", sort=["Total tests", "- Not applicable", "- Automated", "Backlog"], title=None),
-        #         y=alt.Y("y0:Q", title="Tests", scale=alt.Scale(domain=[0, max(n_total, n_backlog)])),
-        #         y2="y1:Q",
-        #         color=alt.Color("cat:N", legend=None, scale=color_scale),
-        #         tooltip=[
-        #             alt.Tooltip("etapa:N", title="Etapa"),
-        #             alt.Tooltip("valor_abs:Q", title="Quantidade"),
-        #         ],
-        #     )
-        #     .properties(height=240)
-        # )
-
-        # labels = (
-        #     alt.Chart(wf)
-        #     .mark_text(fontSize=11, dy=-4)
-        #     .encode(
-        #         x="etapa:N",
-        #         y="y_label:Q",
-        #         text=alt.Text("valor_abs:Q")
-        #     )
-        # )
-
-        # st.altair_chart(waterfall + labels, use_container_width=True)
-
-        # # ---------- Barrinha 100% (composição) ----------
-        # comp = pd.DataFrame({
-        #     "Categoria": ["Automated", "Backlog", "Not applicable"],
-        #     "Qtd":       [n_auto,       n_backlog,  n_not_app]
-        # })
-        # comp_colors = alt.Scale(
-        #     domain=["Automated", "Backlog", "Not applicable"],
-        #     range=["#1FB6FF", "#F59E0B", "#A855F7"]
-        # )
-        # comp_bar = (
-        #     alt.Chart(comp)
-        #     .mark_bar()
-        #     .encode(
-        #         x=alt.X("Qtd:Q", stack="normalize", axis=alt.Axis(format="%", title="Share")),
-        #         color=alt.Color("Categoria:N", scale=comp_colors),
-        #         tooltip=[alt.Tooltip("Categoria:N"), alt.Tooltip("Qtd:Q", title="Quantidade")]
-        #     )
-        #     .properties(height=36)
-        # )
-        # st.altair_chart(comp_bar, use_container_width=True)
+        # ---------- Barrinha 100% (composição) ----------
+        comp = pd.DataFrame({
+            "Categoria": ["Automated", "Backlog", "Not applicable"],
+            "Qtd":       [n_auto,       n_backlog,  n_not_app]
+        })
+        comp_colors = alt.Scale(
+            domain=["Automated", "Backlog", "Not applicable"],
+            range=["#1FB6FF", "#F59E0B", "#A855F7"]
+        )
+        comp_bar = (
+            alt.Chart(comp)
+            .mark_bar()
+            .encode(
+                x=alt.X("Qtd:Q", stack="normalize", axis=alt.Axis(format="%", title="Share")),
+                color=alt.Color("Categoria:N", scale=comp_colors),
+                tooltip=[alt.Tooltip("Categoria:N"), alt.Tooltip("Qtd:Q", title="Quantidade")]
+            )
+            .properties(height=36)
+        )
+        st.altair_chart(comp_bar, use_container_width=True)
 
         # ---------- KPIs abaixo, como no Power BI ----------
         c1, c2, c3 = st.columns(3)
