@@ -82,29 +82,21 @@ def _is_closed(status: str) -> bool:
     return bool(re.search(r"(DONE|CLOSED|RESOLVED)", s))
 
 def _gauge_percent_plotly(total: int, automated: int, not_applicable: int, title: str = "% Automated Test"):
-    """
-    Gauge semicírculo (Plotly) com:
-      • setor inatingível em CINZA (Not applicable)
-      • linha do teto (threshold)
-      • balão exatamente sobre a linha do teto
-    """
     import plotly.graph_objects as go
     import numpy as np
 
-    # Cálculos
     pct_now = (automated / total * 100.0) if total else 0.0
     cap_pct = ((total - not_applicable) / total * 100.0) if total else 0.0
     cap_pct = float(np.clip(cap_pct, 0.0, 100.0))
+    na_pct  = (not_applicable / total * 100.0) if total else 0.0
 
-    # Domínio para não cortar 0/100
     dom_x = [0.08, 0.92]
     dom_y = [0.15, 0.92]
 
-    # Cores
-    c_val   = "#22D3EE"                 # barra do valor atual (ciano)
-    c_able  = "rgba(34,211,238,0.15)"   # faixa atingível (claro)
-    c_na    = "rgba(148,163,184,0.45)"  # faixa inatingível NOT APPLICABLE (CINZA)
-    c_teto  = "#F59E0B"                 # linha/realce do teto
+    c_val   = "#22D3EE"                  # barra atual
+    c_able  = "rgba(34,211,238,0.15)"    # atingível
+    c_na    = "rgba(156,163,175,0.85)"   # NOT APPLICABLE (cinza mais escuro)
+    c_teto  = "#F59E0B"                  # linha do teto
 
     fig = go.Figure(go.Indicator(
         mode="gauge+number",
@@ -119,8 +111,8 @@ def _gauge_percent_plotly(total: int, automated: int, not_applicable: int, title
                      "tickfont": {"size": 10}},
             "bar": {"color": c_val},
             "steps": [
-                {"range": [0, cap_pct],   "color": c_able},  # atingível
-                {"range": [cap_pct, 100], "color": c_na},    # inatingível (cinza)
+                {"range": [0, cap_pct],   "color": c_able},
+                {"range": [cap_pct, 100], "color": c_na},
             ],
             "threshold": {
                 "line": {"color": c_teto, "width": 6},
@@ -132,27 +124,40 @@ def _gauge_percent_plotly(total: int, automated: int, not_applicable: int, title
         domain={"x": dom_x, "y": dom_y}
     ))
 
-    # ---- Balão exatamente na linha do teto (no arco) ----
+    # ===== Balão exatamente na linha do teto =====
     x0, x1 = dom_x; y0, y1 = dom_y
     w = x1 - x0; h = y1 - y0
     cx = (x0 + x1) / 2.0
     r  = min(w / 2.0, h) * 0.96
     cy = y0
-    theta = -np.pi + (np.pi * cap_pct / 100.0)  # -π (0%) → 0 (100%)
-    r_annot = r * 1.00  # exatamente no arco (use 1.02 para ficar ligeiramente fora)
-    x_annot = cx + r_annot * np.cos(theta)
-    y_annot = cy + r_annot * np.sin(theta)
-
+    theta_cap = -np.pi + (np.pi * cap_pct / 100.0)
+    x_cap = cx + r * np.cos(theta_cap)
+    y_cap = cy + r * np.sin(theta_cap)
     fig.add_annotation(
-        x=float(x_annot), y=float(y_annot), xref="paper", yref="paper",
-        text=f"<b>Máx. {cap_pct:.1f}%</b><br><span style='color:#9CA3AF'>({not_applicable} Not applicable)</span>",
+        x=float(x_cap), y=float(y_cap), xref="paper", yref="paper",
+        text=f"<b>Máx. {cap_pct:.1f}%</b><br><span style='color:#E5E7EB'>({not_applicable} Not applicable)</span>",
         showarrow=True, arrowhead=3, arrowcolor=c_teto, ax=0, ay=-14,
         bgcolor="rgba(17,24,39,0.95)", bordercolor=c_teto,
         font={"size": 12, "color": "#FFFFFF"}
     )
-    # ------------------------------------------------------
 
-    fig.update_layout(height=280, margin=dict(l=16, r=16, t=48, b=0))
+    # ===== Rótulo dentro do setor cinza (Not applicable) =====
+    if cap_pct < 100:  # só faz sentido se existir setor NA
+        p_mid = (cap_pct + 100.0) / 2.0                 # % central do setor NA
+        theta_mid = -np.pi + (np.pi * p_mid / 100.0)    # ângulo no meio do NA
+        r_lab = r * 0.82                                 # um pouco para dentro do arco
+        x_na = cx + r_lab * np.cos(theta_mid)
+        y_na = cy + r_lab * np.sin(theta_mid)
+        fig.add_annotation(
+            x=float(x_na), y=float(y_na), xref="paper", yref="paper",
+            text=f"<b>Not applicable</b><br>{not_applicable}  ({na_pct:.1f}%)",
+            showarrow=False,
+            bgcolor="rgba(17,24,39,0.90)", bordercolor="#9CA3AF",
+            font={"size": 11, "color": "#FFFFFF"},
+            align="center"
+        )
+
+    fig.update_layout(height=300, margin=dict(l=16, r=16, t=48, b=0))
     return fig
 
 # --------- Links por ID a partir do CSV de Test Cases ----------
