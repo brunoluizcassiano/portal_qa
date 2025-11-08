@@ -90,23 +90,57 @@ def _is_closed(status: str) -> bool:
     return bool(re.search(r"(DONE|CLOSED|RESOLVED)", s))
 
 
-def _gauge_percent_plotly(percent: float, title: str = ""):
-    """Gauge semicírculo de % (0–100)."""
+def _gauge_percent_plotly(total: int, automated: int, not_applicable: int, title: str = "% Automated Test"):
+    """Gauge semicírculo mostrando %Automated (sobre total) e o teto máximo possível dada a base Not applicable."""
+    import plotly.graph_objects as go
+
+    # % atual e teto possível (se todo backlog fosse automatizado)
+    pct_now = (automated / total * 100.0) if total else 0.0
+    cap_pct = ((total - not_applicable) / total * 100.0) if total else 0.0  # teto atingível
+    cap_pct = max(0.0, min(100.0, cap_pct))
+
     fig = go.Figure(go.Indicator(
         mode="gauge+number",
-        value=max(0, min(100, percent)),
-        number={"suffix": "%", "font": {"size": 28}},
+        value=max(0, min(100, pct_now)),
+        number={"suffix": "%", "font": {"size": 26}},
         title={"text": title, "font": {"size": 14}},
         gauge={
-            "shape": "angular",                # gauge
-            "axis": {"range": [0, 100]},
+            "shape": "angular",                 # semiciclo
+            "axis": {
+                "range": [0, 100],
+                "tickmode": "array",
+                "tickvals": [0, 20, 40, 60, 80, 100],
+                "tickfont": {"size": 10}
+            },
             "bar": {"color": "#1FB6FF"},
+            # Faixas: [0, cap] (atingível) e [cap, 100] (inalcançável por Not applicable)
+            "steps": [
+                {"range": [0, cap_pct],   "color": "rgba(31,182,255,0.10)"},  # atingível
+                {"range": [cap_pct, 100], "color": "rgba(148,163,184,0.25)"}  # inatingível
+            ],
+            # Linha de marcação do teto
+            "threshold": {
+                "line": {"color": "#F59E0B", "width": 3},
+                "thickness": 0.75,
+                "value": cap_pct
+            },
             "bgcolor": "rgba(0,0,0,0)",
-            "threshold": {"line": {"color": "#F59E0B", "width": 3}, "thickness": 0.75, "value": percent}
         },
-        domain={"x": [0, 1], "y": [0, 0.5]}    # corta para meia-lua
+        # Domínio mais alto para não cortar ticks
+        domain={"x": [0.02, 0.98], "y": [0.15, 0.90]}
     ))
-    fig.update_layout(height=220, margin=dict(l=10, r=10, t=30, b=0))
+
+    # Anotação do teto (ex.: "Máx. possível: 82.5% (2.550 Not applicable)")
+    fig.add_annotation(
+        x=0.5, y=1.0, xref="paper", yref="paper",
+        text=f"<b>Máx. possível:</b> {cap_pct:.1f}% &nbsp; <span style='color:#9CA3AF'>({not_applicable} Not applicable)</span>",
+        showarrow=False, font={"size": 12}
+    )
+
+    fig.update_layout(
+        height=260,
+        margin=dict(l=16, r=16, t=42, b=0),
+    )
     return fig
 
 def _donut_backlog_plotly(total: int, automated: int, not_applicable: int, title: str = "Automated Backlog"):
@@ -663,16 +697,19 @@ def pagina_dashboard_coverage_and_run():
         # Se Plotly estiver disponível, mostra donut e gauge bonitos;
         # caso contrário, segue com os gráficos Altair que você já tem.
         if _HAS_PLOTLY:
-            # Donut de composição
-            # st.plotly_chart(_donut_backlog_plotly(n_total, n_auto, n_not_app, "Automated Backlog"), use_container_width=True)
+            # # Donut de composição (mantém)
+            # st.plotly_chart(_donut_backlog_plotly(n_total, n_auto, n_not_app, "Automated Backlog"),
+            #                 use_container_width=True)
 
-            # Gauge (meia-lua) do % Automated Test
-            pct_auto = (n_auto / n_total * 100.0) if n_total else 0.0
-            st.plotly_chart(_gauge_percent_plotly(pct_auto, "% Automated Test"), use_container_width=True)
+            # Gauge com teto visual (novo)
+            st.plotly_chart(_gauge_percent_plotly(n_total, n_auto, n_not_app, "% Automated Test"),
+                            use_container_width=True)
+            st.caption("O setor cinza indica a parte inatingível do 100% devido aos testes marcados como Not applicable.")
         else:
-            # (mantém o que você já desenha hoje com Altair – sem mudanças)
+            # ... (seu fallback Altair permanece igual)
             st.altair_chart(waterfall + labels, use_container_width=True)
             st.altair_chart(comp_bar, use_container_width=True)
+
 
 
         # # ---------- Waterfall: Total -> -Not applicable -> -Automated -> Backlog ----------
