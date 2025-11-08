@@ -83,21 +83,28 @@ def _is_closed(status: str) -> bool:
 
 def _gauge_percent_plotly(total: int, automated: int, not_applicable: int, title: str = "% Automated Test"):
     """
-    Gauge semicírculo:
-    - valor atual (% automated)
-    - teto possível (cap = 100% - % Not applicable)
-    - rótulo 'Máx.' colocado exatamente na linha do teto, usando geometria do arco.
+    Gauge semicírculo (Plotly) com:
+      • setor inatingível em CINZA (Not applicable)
+      • linha do teto (threshold)
+      • balão exatamente sobre a linha do teto
     """
-    import numpy as np
     import plotly.graph_objects as go
+    import numpy as np
 
+    # Cálculos
     pct_now = (automated / total * 100.0) if total else 0.0
     cap_pct = ((total - not_applicable) / total * 100.0) if total else 0.0
     cap_pct = float(np.clip(cap_pct, 0.0, 100.0))
 
-    # Domínio do gauge (ajustado pra não cortar 0 e 100)
+    # Domínio para não cortar 0/100
     dom_x = [0.08, 0.92]
     dom_y = [0.15, 0.92]
+
+    # Cores
+    c_val   = "#22D3EE"                 # barra do valor atual (ciano)
+    c_able  = "rgba(34,211,238,0.15)"   # faixa atingível (claro)
+    c_na    = "rgba(148,163,184,0.45)"  # faixa inatingível NOT APPLICABLE (CINZA)
+    c_teto  = "#F59E0B"                 # linha/realce do teto
 
     fig = go.Figure(go.Indicator(
         mode="gauge+number",
@@ -106,57 +113,44 @@ def _gauge_percent_plotly(total: int, automated: int, not_applicable: int, title
         title={"text": title, "font": {"size": 14}},
         gauge={
             "shape": "angular",
-            "axis": {
-                "range": [0, 100],
-                "tickmode": "array",
-                "tickvals": [0, 20, 40, 60, 80, 100],
-                "tickfont": {"size": 10},
-            },
-            "bar": {"color": "#22D3EE"},  # valor atual (ciano)
-            # Atingível x Inatingível (por Not applicable)
+            "axis": {"range": [0, 100],
+                     "tickmode": "array",
+                     "tickvals": [0, 20, 40, 60, 80, 100],
+                     "tickfont": {"size": 10}},
+            "bar": {"color": c_val},
             "steps": [
-                {"range": [0, cap_pct],   "color": "rgba(34,211,238,0.15)"},
-                {"range": [cap_pct, 100], "color": "rgba(239,68,68,0.45)"},
+                {"range": [0, cap_pct],   "color": c_able},  # atingível
+                {"range": [cap_pct, 100], "color": c_na},    # inatingível (cinza)
             ],
             "threshold": {
-                "line": {"color": "#F59E0B", "width": 6},
+                "line": {"color": c_teto, "width": 6},
                 "thickness": 1.0,
-                "value": cap_pct,
+                "value": cap_pct
             },
             "bgcolor": "rgba(0,0,0,0)",
         },
-        domain={"x": dom_x, "y": dom_y},
+        domain={"x": dom_x, "y": dom_y}
     ))
 
-    # ======= Cálculo EXATO da posição do teto no arco =======
-    # Mapeia 0..100 para ângulo do semicírculo (esquerda=π, direita=0)
-    theta = np.pi * (1.0 - cap_pct / 100.0)
-
-    # Centro do círculo do gauge e raio (em coords 'paper')
-    cx = (dom_x[0] + dom_x[1]) / 2.0           # centro X
-    cy = dom_y[0]                              # centro Y (base da meia-lua)
-    # raio: usa o menor entre altura e meia-largura, com leve margem
-    r = min((dom_x[1] - dom_x[0]) / 2.0, (dom_y[1] - dom_y[0])) * 0.98
-
-    # Ponta da linha de teto (no arco externo)
-    x_tip = cx + r * np.cos(theta)
-    y_tip = cy + r * np.sin(theta)
-
-    # Desloca o balão 16px para fora, na direção radial (sem perder alinhamento)
-    vx, vy = x_tip - cx, y_tip - cy
-    norm = max(np.hypot(vx, vy), 1e-9)
-    x_lab = x_tip + (vx / norm) * 0.0  # sem deslocamento em 'paper'; usamos standoff em pixels
-    y_lab = y_tip + (vy / norm) * 0.0
+    # ---- Balão exatamente na linha do teto (no arco) ----
+    x0, x1 = dom_x; y0, y1 = dom_y
+    w = x1 - x0; h = y1 - y0
+    cx = (x0 + x1) / 2.0
+    r  = min(w / 2.0, h) * 0.96
+    cy = y0
+    theta = -np.pi + (np.pi * cap_pct / 100.0)  # -π (0%) → 0 (100%)
+    r_annot = r * 1.00  # exatamente no arco (use 1.02 para ficar ligeiramente fora)
+    x_annot = cx + r_annot * np.cos(theta)
+    y_annot = cy + r_annot * np.sin(theta)
 
     fig.add_annotation(
-        x=x_lab, y=y_lab, xref="paper", yref="paper",
+        x=float(x_annot), y=float(y_annot), xref="paper", yref="paper",
         text=f"<b>Máx. {cap_pct:.1f}%</b><br><span style='color:#9CA3AF'>({not_applicable} Not applicable)</span>",
-        showarrow=True, arrowhead=3, arrowcolor="#F59E0B",
-        ax=0, ay=0,              # seta apontando exatamente para a linha
-        standoff=16,             # distância do balão para fora do arco (px)
-        bgcolor="rgba(17,24,39,0.95)", bordercolor="#F59E0B",
-        font={"size": 12, "color": "#FFFFFF"},
+        showarrow=True, arrowhead=3, arrowcolor=c_teto, ax=0, ay=-14,
+        bgcolor="rgba(17,24,39,0.95)", bordercolor=c_teto,
+        font={"size": 12, "color": "#FFFFFF"}
     )
+    # ------------------------------------------------------
 
     fig.update_layout(height=280, margin=dict(l=16, r=16, t=48, b=0))
     return fig
