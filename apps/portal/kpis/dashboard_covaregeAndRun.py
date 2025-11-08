@@ -91,13 +91,16 @@ def _is_closed(status: str) -> bool:
 
 
 def _gauge_percent_plotly(total: int, automated: int, not_applicable: int, title: str = "% Automated Test"):
-    """Gauge semicírculo mostrando %Automated (sobre total) e o teto máximo possível dada a base Not applicable."""
+    """Gauge semicírculo mostrando %Automated e destacando o teto possível dadas as evidências Not applicable."""
     import plotly.graph_objects as go
 
-    # % atual e teto possível (se todo backlog fosse automatizado)
     pct_now = (automated / total * 100.0) if total else 0.0
-    cap_pct = ((total - not_applicable) / total * 100.0) if total else 0.0  # teto atingível
+    cap_pct = ((total - not_applicable) / total * 100.0) if total else 0.0
     cap_pct = max(0.0, min(100.0, cap_pct))
+
+    # Domínio ajustado para não cortar 0 e 100
+    dom_x = [0.02, 0.98]
+    dom_y = [0.15, 0.92]
 
     fig = go.Figure(go.Indicator(
         mode="gauge+number",
@@ -105,41 +108,44 @@ def _gauge_percent_plotly(total: int, automated: int, not_applicable: int, title
         number={"suffix": "%", "font": {"size": 26}},
         title={"text": title, "font": {"size": 14}},
         gauge={
-            "shape": "angular",                 # semiciclo
+            "shape": "angular",
             "axis": {
                 "range": [0, 100],
                 "tickmode": "array",
                 "tickvals": [0, 20, 40, 60, 80, 100],
                 "tickfont": {"size": 10}
             },
-            "bar": {"color": "#1FB6FF"},
-            # Faixas: [0, cap] (atingível) e [cap, 100] (inalcançável por Not applicable)
+            # barra do valor atual
+            "bar": {"color": "#22D3EE"},  # ciano vivo
+            # faixas: atingível (claro) x inatingível (vermelho translúcido)
             "steps": [
-                {"range": [0, cap_pct],   "color": "rgba(31,182,255,0.10)"},  # atingível
-                {"range": [cap_pct, 100], "color": "rgba(148,163,184,0.25)"}  # inatingível
+                {"range": [0, cap_pct],   "color": "rgba(34,211,238,0.15)"},  # atingível
+                {"range": [cap_pct, 100], "color": "rgba(239,68,68,0.45)"}    # inatingível (bem visível)
             ],
-            # Linha de marcação do teto
+            # linha de teto
             "threshold": {
-                "line": {"color": "#F59E0B", "width": 3},
-                "thickness": 0.75,
+                "line": {"color": "#F59E0B", "width": 6},
+                "thickness": 1.0,
                 "value": cap_pct
             },
             "bgcolor": "rgba(0,0,0,0)",
         },
-        # Domínio mais alto para não cortar ticks
-        domain={"x": [0.02, 0.98], "y": [0.15, 0.90]}
+        domain={"x": dom_x, "y": dom_y}
     ))
 
-    # Anotação do teto (ex.: "Máx. possível: 82.5% (2.550 Not applicable)")
+    # anotação com seta exatamente no ponto do teto
+    x_annot = dom_x[0] + (dom_x[1] - dom_x[0]) * (cap_pct / 100.0)
     fig.add_annotation(
-        x=0.5, y=1.0, xref="paper", yref="paper",
-        text=f"<b>Máx. possível:</b> {cap_pct:.1f}% &nbsp; <span style='color:#9CA3AF'>({not_applicable} Not applicable)</span>",
-        showarrow=False, font={"size": 12}
+        x=x_annot, y=dom_y[1], xref="paper", yref="paper",
+        text=f"<b>Máx. possível {cap_pct:.1f}%</b><br><span style='color:#9CA3AF'>({not_applicable} Not applicable)</span>",
+        showarrow=True, arrowhead=3, ax=0, ay=-28,
+        bgcolor="rgba(17,24,39,0.90)", bordercolor="#F59E0B",
+        font={"size": 12, "color": "#FFFFFF"}
     )
 
     fig.update_layout(
-        height=260,
-        margin=dict(l=16, r=16, t=42, b=0),
+        height=280,
+        margin=dict(l=16, r=16, t=48, b=0),
     )
     return fig
 
