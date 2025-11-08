@@ -4,7 +4,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import altair as alt
-# import plotly.graph_objects as go
+import plotly.graph_objects as go
 from datetime import date, timedelta
 from pandas.api.types import is_datetime64_any_dtype, is_datetime64tz_dtype
 
@@ -13,14 +13,6 @@ from .analytics.constants import (
     JIRA_EPIC, JIRA_STORY, JIRA_BUG, JIRA_SUBBUG, JIRA_PROJ,
     ZEPHYR_TC, ZEPHYR_EXEC_MAIN, ZEPHYR_EXEC_FALLBACK,
 )
-
-# Plotly é opcional; se não tiver instalado, o código cai em fallback Altair
-try:
-    import plotly.graph_objects as go
-    _HAS_PLOTLY = True
-except Exception:
-    _HAS_PLOTLY = False
-
 
 # FUNC é opcional no teu repo
 try:
@@ -89,22 +81,27 @@ def _is_closed(status: str) -> bool:
     s = str(status).upper()
     return bool(re.search(r"(DONE|CLOSED|RESOLVED)", s))
 
-
 def _gauge_percent_plotly(total: int, automated: int, not_applicable: int, title: str = "% Automated Test"):
-    """Gauge semicírculo mostrando %Automated e destacando o teto possível dadas as evidências Not applicable."""
+    """
+    Gauge semicírculo:
+    - valor atual (% automated)
+    - teto possível (cap = 100% - % Not applicable)
+    - rótulo 'Máx.' colocado exatamente na linha do teto, usando geometria do arco.
+    """
+    import numpy as np
     import plotly.graph_objects as go
 
     pct_now = (automated / total * 100.0) if total else 0.0
     cap_pct = ((total - not_applicable) / total * 100.0) if total else 0.0
-    cap_pct = max(0.0, min(100.0, cap_pct))
+    cap_pct = float(np.clip(cap_pct, 0.0, 100.0))
 
-    # Domínio ajustado para não cortar 0 e 100
-    dom_x = [0.02, 0.98]
+    # Domínio do gauge (ajustado pra não cortar 0 e 100)
+    dom_x = [0.08, 0.92]
     dom_y = [0.15, 0.92]
 
     fig = go.Figure(go.Indicator(
         mode="gauge+number",
-        value=max(0, min(100, pct_now)),
+        value=float(np.clip(pct_now, 0.0, 100.0)),
         number={"suffix": "%", "font": {"size": 26}},
         title={"text": title, "font": {"size": 14}},
         gauge={
@@ -113,52 +110,55 @@ def _gauge_percent_plotly(total: int, automated: int, not_applicable: int, title
                 "range": [0, 100],
                 "tickmode": "array",
                 "tickvals": [0, 20, 40, 60, 80, 100],
-                "tickfont": {"size": 10}
+                "tickfont": {"size": 10},
             },
-            # barra do valor atual
-            "bar": {"color": "#22D3EE"},  # ciano vivo
-            # faixas: atingível (claro) x inatingível (vermelho translúcido)
+            "bar": {"color": "#22D3EE"},  # valor atual (ciano)
+            # Atingível x Inatingível (por Not applicable)
             "steps": [
-                {"range": [0, cap_pct],   "color": "rgba(34,211,238,0.15)"},  # atingível
-                {"range": [cap_pct, 100], "color": "rgba(239,68,68,0.45)"}    # inatingível (bem visível)
+                {"range": [0, cap_pct],   "color": "rgba(34,211,238,0.15)"},
+                {"range": [cap_pct, 100], "color": "rgba(239,68,68,0.45)"},
             ],
-            # linha de teto
             "threshold": {
                 "line": {"color": "#F59E0B", "width": 6},
                 "thickness": 1.0,
-                "value": cap_pct
+                "value": cap_pct,
             },
             "bgcolor": "rgba(0,0,0,0)",
         },
-        domain={"x": dom_x, "y": dom_y}
+        domain={"x": dom_x, "y": dom_y},
     ))
 
-    # anotação com seta exatamente no ponto do teto
-    x_annot = dom_x[0] + (dom_x[1] - dom_x[0]) * (cap_pct / 100.0)
+    # ======= Cálculo EXATO da posição do teto no arco =======
+    # Mapeia 0..100 para ângulo do semicírculo (esquerda=π, direita=0)
+    theta = np.pi * (1.0 - cap_pct / 100.0)
+
+    # Centro do círculo do gauge e raio (em coords 'paper')
+    cx = (dom_x[0] + dom_x[1]) / 2.0           # centro X
+    cy = dom_y[0]                              # centro Y (base da meia-lua)
+    # raio: usa o menor entre altura e meia-largura, com leve margem
+    r = min((dom_x[1] - dom_x[0]) / 2.0, (dom_y[1] - dom_y[0])) * 0.98
+
+    # Ponta da linha de teto (no arco externo)
+    x_tip = cx + r * np.cos(theta)
+    y_tip = cy + r * np.sin(theta)
+
+    # Desloca o balão 16px para fora, na direção radial (sem perder alinhamento)
+    vx, vy = x_tip - cx, y_tip - cy
+    norm = max(np.hypot(vx, vy), 1e-9)
+    x_lab = x_tip + (vx / norm) * 0.0  # sem deslocamento em 'paper'; usamos standoff em pixels
+    y_lab = y_tip + (vy / norm) * 0.0
+
     fig.add_annotation(
-        x=x_annot, y=dom_y[1], xref="paper", yref="paper",
-        text=f"<b>Máx. possível {cap_pct:.1f}%</b><br><span style='color:#9CA3AF'>({not_applicable} Not applicable)</span>",
-        showarrow=True, arrowhead=3, ax=0, ay=-28,
-        bgcolor="rgba(17,24,39,0.90)", bordercolor="#F59E0B",
-        font={"size": 12, "color": "#FFFFFF"}
+        x=x_lab, y=y_lab, xref="paper", yref="paper",
+        text=f"<b>Máx. {cap_pct:.1f}%</b><br><span style='color:#9CA3AF'>({not_applicable} Not applicable)</span>",
+        showarrow=True, arrowhead=3, arrowcolor="#F59E0B",
+        ax=0, ay=0,              # seta apontando exatamente para a linha
+        standoff=16,             # distância do balão para fora do arco (px)
+        bgcolor="rgba(17,24,39,0.95)", bordercolor="#F59E0B",
+        font={"size": 12, "color": "#FFFFFF"},
     )
 
-    fig.update_layout(
-        height=280,
-        margin=dict(l=16, r=16, t=48, b=0),
-    )
-    return fig
-
-def _donut_backlog_plotly(total: int, automated: int, not_applicable: int, title: str = "Automated Backlog"):
-    """Donut de composição: Automated × Backlog × Not applicable."""
-    backlog = max(0, total - automated - not_applicable)
-    labels = ["Automated", "Backlog", "Not applicable"]
-    values = [automated, backlog, not_applicable]
-    colors = ["#1FB6FF", "#F59E0B", "#A855F7"]
-    fig = go.Figure(data=[go.Pie(labels=labels, values=values, hole=0.65,
-                                 textinfo="label+value", marker=dict(colors=colors))])
-    fig.update_layout(title=title, height=260, margin=dict(l=10, r=10, t=30, b=0),
-                      legend=dict(orientation="h", yanchor="bottom", y=-0.1, xanchor="center", x=0.5))
+    fig.update_layout(height=280, margin=dict(l=16, r=16, t=48, b=0))
     return fig
 
 # --------- Links por ID a partir do CSV de Test Cases ----------
@@ -675,123 +675,47 @@ def pagina_dashboard_coverage_and_run():
 
     st.markdown("---")
 
-    # ---------------- Automated Backlog (mantido) ----------------
-    st.markdown("#### Automated Backlog")
+    # ---------------- Gráficos (mantidos) ----------------
+    cA, cB = st.columns(2)
 
-    if f_zc.empty:
-        st.info("Sem dados de casos de teste (Zephyr Test Cases).")
-    else:
-        # Contagens já alinhadas com sua lógica
-        auto_col = _find_col_norm(
-            f_zc,
-            ["customfields.automation status", "custom fields.automation status", "automation status"]
-        )
+    with cA:
+        # ---------------- Automated Backlog (mantido) ----------------
+        st.markdown("#### Automated Backlog")
 
-        if auto_col:
-            s_status = f_zc[auto_col].astype(str).str.replace("\xa0", " ").str.strip().str.lower()
-            auto_mask = s_status.eq("automated")
-            not_app_mask = s_status.apply(_is_not_applicable_from_custom_status)
+        if f_zc.empty:
+            st.info("Sem dados de casos de teste (Zephyr Test Cases).")
         else:
-            auto_mask = pd.Series(False, index=f_zc.index)
-            not_app_mask = pd.Series(False, index=f_zc.index)
+            # Contagens já alinhadas com sua lógica
+            auto_col = _find_col_norm(
+                f_zc,
+                ["customfields.automation status", "custom fields.automation status", "automation status"]
+            )
 
-        n_total    = int(len(f_zc))
-        n_auto     = int(auto_mask.sum())
-        n_not_app  = int(not_app_mask.sum())
-        n_backlog  = max(0, n_total - n_auto - n_not_app)
+            if auto_col:
+                s_status = f_zc[auto_col].astype(str).str.replace("\xa0", " ").str.strip().str.lower()
+                auto_mask = s_status.eq("automated")
+                not_app_mask = s_status.apply(_is_not_applicable_from_custom_status)
+            else:
+                auto_mask = pd.Series(False, index=f_zc.index)
+                not_app_mask = pd.Series(False, index=f_zc.index)
 
-        # Se Plotly estiver disponível, mostra donut e gauge bonitos;
-        # caso contrário, segue com os gráficos Altair que você já tem.
-        if _HAS_PLOTLY:
-            # # Donut de composição (mantém)
-            # st.plotly_chart(_donut_backlog_plotly(n_total, n_auto, n_not_app, "Automated Backlog"),
-            #                 use_container_width=True)
+            n_total    = int(len(f_zc))
+            n_auto     = int(auto_mask.sum())
+            n_not_app  = int(not_app_mask.sum())
+            n_backlog  = max(0, n_total - n_auto - n_not_app)
 
             # Gauge com teto visual (novo)
             st.plotly_chart(_gauge_percent_plotly(n_total, n_auto, n_not_app, "% Automated Test"),
-                            use_container_width=True)
+                                use_container_width=True)
             st.caption("O setor cinza indica a parte inatingível do 100% devido aos testes marcados como Not applicable.")
-        else:
-            # ... (seu fallback Altair permanece igual)
-            st.altair_chart(waterfall + labels, use_container_width=True)
-            st.altair_chart(comp_bar, use_container_width=True)
 
+            # ---------- KPIs abaixo, como no Power BI ----------
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Automated", n_auto)
+            c2.metric("Backlog automated", n_backlog)
+            c3.metric("Not applicable automated", n_not_app)
 
-
-        # # ---------- Waterfall: Total -> -Not applicable -> -Automated -> Backlog ----------
-        # wf = pd.DataFrame([
-        #     {"etapa": "Total tests",        "cat": "total",    "y0": 0,                           "y1": n_total,                      "valor_abs": n_total},
-        #     {"etapa": "- Not applicable",   "cat": "not_app",  "y0": n_total - n_not_app,         "y1": n_total,                      "valor_abs": n_not_app},
-        #     {"etapa": "- Automated",        "cat": "auto",     "y0": n_total - n_not_app - n_auto,"y1": n_total - n_not_app,          "valor_abs": n_auto},
-        #     {"etapa": "Backlog",            "cat": "backlog",  "y0": 0,                           "y1": n_backlog,                    "valor_abs": n_backlog},
-        # ])
-        # wf["y_label"] = np.where(wf["cat"].isin(["not_app", "auto"]), wf["y0"], wf["y1"])
-
-        # color_scale = alt.Scale(
-        #     domain=["total", "not_app", "auto", "backlog"],
-        #     range=["#9CA3AF", "#A855F7", "#1FB6FF", "#F59E0B"]  # cinza, roxo, azul, âmbar
-        # )
-
-        # waterfall = (
-        #     alt.Chart(wf)
-        #     .mark_bar()
-        #     .encode(
-        #         x=alt.X("etapa:N", sort=["Total tests", "- Not applicable", "- Automated", "Backlog"], title=None),
-        #         y=alt.Y("y0:Q", title="Tests", scale=alt.Scale(domain=[0, max(n_total, n_backlog)])),
-        #         y2="y1:Q",
-        #         color=alt.Color("cat:N", legend=None, scale=color_scale),
-        #         tooltip=[
-        #             alt.Tooltip("etapa:N", title="Etapa"),
-        #             alt.Tooltip("valor_abs:Q", title="Quantidade"),
-        #         ],
-        #     )
-        #     .properties(height=240)
-        # )
-
-        # labels = (
-        #     alt.Chart(wf)
-        #     .mark_text(fontSize=11, dy=-4)
-        #     .encode(
-        #         x="etapa:N",
-        #         y="y_label:Q",
-        #         text=alt.Text("valor_abs:Q")
-        #     )
-        # )
-
-        # st.altair_chart(waterfall + labels, use_container_width=True)
-
-        # # ---------- Barrinha 100% (composição) ----------
-        # comp = pd.DataFrame({
-        #     "Categoria": ["Automated", "Backlog", "Not applicable"],
-        #     "Qtd":       [n_auto,       n_backlog,  n_not_app]
-        # })
-        # comp_colors = alt.Scale(
-        #     domain=["Automated", "Backlog", "Not applicable"],
-        #     range=["#1FB6FF", "#F59E0B", "#A855F7"]
-        # )
-        # comp_bar = (
-        #     alt.Chart(comp)
-        #     .mark_bar()
-        #     .encode(
-        #         x=alt.X("Qtd:Q", stack="normalize", axis=alt.Axis(format="%", title="Share")),
-        #         color=alt.Color("Categoria:N", scale=comp_colors),
-        #         tooltip=[alt.Tooltip("Categoria:N"), alt.Tooltip("Qtd:Q", title="Quantidade")]
-        #     )
-        #     .properties(height=36)
-        # )
-        # st.altair_chart(comp_bar, use_container_width=True)
-
-        # ---------- KPIs abaixo, como no Power BI ----------
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Automated", n_auto)
-        c2.metric("Backlog automated", n_backlog)
-        c3.metric("Not applicable automated", n_not_app)
-
-    st.markdown("---")
-
-    # ---------------- Gráficos (mantidos) ----------------
-    cA, cB, cC = st.columns(3)
-    with cA:
+    with cB:
         # ---------------- Regressive × Others (Test type) ----------------
         st.markdown("#### Regressive × Others (Test type)")
 
@@ -841,8 +765,13 @@ def pagina_dashboard_coverage_and_run():
                 )
 
                 st.altair_chart(chart_rr, use_container_width=True)
+                
+    st.markdown("---")
 
-    with cB:
+    # ---------------- Gráficos (mantidos) ----------------
+    cA, cB = st.columns(2)
+
+    with cA:
         # ---------------- Positive × Negative (Test Cases -> Custom Fields.Test Class) ----------------
         st.markdown("#### Positive × Negative (Test class)")
 
@@ -899,7 +828,7 @@ def pagina_dashboard_coverage_and_run():
 
                     st.altair_chart(ch_pn, use_container_width=True)
 
-    with cC:
+    with cB:
         st.markdown("#### Automated run × Manual run")
         if f_ze.empty or "automated" not in f_ze.columns:
             st.info("Sem execuções no período.")
@@ -914,82 +843,84 @@ def pagina_dashboard_coverage_and_run():
 
     st.markdown("---")
 
-    # ---------------- Test evolution (linha mensal) ----------------
-    st.markdown("#### Test evolution (mensal)")
-    if f_ze.empty:
-        st.info("Sem execuções no período selecionado.")
-    else:
-        z = f_ze.copy()
-        z["is_auto"] = z.get("automated", pd.Series(dtype="object")).astype(str).str.lower().isin(["1","true","yes","automated","sim"])
-        df_month = z.groupby(["month","is_auto"]).size().reset_index(name="runs")
-        df_month["tipo"] = df_month["is_auto"].map({True:"Automated Run", False:"Manual Run"})
-        try:
-            df_month["month_dt"] = pd.to_datetime(df_month["month"] + "-01", errors="coerce")
-            df_month = df_month.sort_values("month_dt")
-        except Exception:
-            pass
-        ch = alt.Chart(df_month).mark_line(point=True).encode(
-            x=alt.X("month:N", title="Mês"),
-            y=alt.Y("runs:Q", title="Runs"),
-            color=alt.Color("tipo:N", title=None)
-        ).properties(height=300)
-        st.altair_chart(ch, use_container_width=True)
+    cA, cB = st.columns(2)
 
-    st.markdown("---")
-    
-    # ---------------- Automation in regressive (por Test Case) ----------------
-    st.markdown("#### Automation in regressive")
-
-    if f_zc.empty:
-        st.info("Sem dados de casos de teste (Zephyr Test Cases).")
-    else:
-        tt_col  = _find_col_norm(f_zc, ["custom fields.test type", "customfields.test type", "test type"])
-        auto_tc = _find_col_norm(f_zc, ["custom fields.automation status", "customfields.automation status", "automation status"])
-
-        if not tt_col or not auto_tc:
-            st.info("Colunas 'Test Type' / 'Automation Status' não encontradas nos Test Cases.")
+    with cA:
+        # ---------------- Test evolution (linha mensal) ----------------
+        st.markdown("#### Test evolution (mensal)")
+        if f_ze.empty:
+            st.info("Sem execuções no período selecionado.")
         else:
-            s_type = f_zc[tt_col].astype(str).str.replace("\xa0", " ").str.strip().str.lower()
-            s_auto = f_zc[auto_tc].astype(str).str.replace("\xa0", " ").str.strip().str.lower()
+            z = f_ze.copy()
+            z["is_auto"] = z.get("automated", pd.Series(dtype="object")).astype(str).str.lower().isin(["1","true","yes","automated","sim"])
+            df_month = z.groupby(["month","is_auto"]).size().reset_index(name="runs")
+            df_month["tipo"] = df_month["is_auto"].map({True:"Automated Run", False:"Manual Run"})
+            try:
+                df_month["month_dt"] = pd.to_datetime(df_month["month"] + "-01", errors="coerce")
+                df_month = df_month.sort_values("month_dt")
+            except Exception:
+                pass
+            ch = alt.Chart(df_month).mark_line(point=True).encode(
+                x=alt.X("month:N", title="Mês"),
+                y=alt.Y("runs:Q", title="Runs"),
+                color=alt.Color("tipo:N", title=None)
+            ).properties(height=300)
+            st.altair_chart(ch, use_container_width=True)
+    
+    with cB:
+        # ---------------- Automation in regressive (por Test Case) ----------------
+        st.markdown("#### Automation in regressive")
 
-            reg_mask     = s_type.str.contains(r"\bregress", na=False)
-            not_app_mask = s_auto.isin({"n/a", "na"}) | s_auto.str.contains("not applic|nor applic", na=False)
+        if f_zc.empty:
+            st.info("Sem dados de casos de teste (Zephyr Test Cases).")
+        else:
+            tt_col  = _find_col_norm(f_zc, ["custom fields.test type", "customfields.test type", "test type"])
+            auto_tc = _find_col_norm(f_zc, ["custom fields.automation status", "customfields.automation status", "automation status"])
 
-            base = f_zc[reg_mask & ~not_app_mask].copy()
-            if base.empty:
-                st.info("Sem registros Regression automatizáveis no período/projeto selecionado.")
+            if not tt_col or not auto_tc:
+                st.info("Colunas 'Test Type' / 'Automation Status' não encontradas nos Test Cases.")
             else:
-                auto_reg = (s_auto.loc[base.index] == "automated").sum()
-                man_reg  = len(base) - auto_reg
+                s_type = f_zc[tt_col].astype(str).str.replace("\xa0", " ").str.strip().str.lower()
+                s_auto = f_zc[auto_tc].astype(str).str.replace("\xa0", " ").str.strip().str.lower()
 
-                df_reg = pd.DataFrame({
-                    "Categoria": ["Automated (Regression)", "Manual (Regression)"],
-                    "Qtd": [int(auto_reg), int(man_reg)]
-                })
+                reg_mask     = s_type.str.contains(r"\bregress", na=False)
+                not_app_mask = s_auto.isin({"n/a", "na"}) | s_auto.str.contains("not applic|nor applic", na=False)
 
-                bar = (
-                    alt.Chart(df_reg)
-                    .mark_bar()
-                    .encode(
-                        x=alt.X("Categoria:N", title=None),
-                        y=alt.Y("Qtd:Q", title="Test Cases"),
-                        color=alt.Color(
-                            "Categoria:N",
-                            legend=None,
-                            scale=alt.Scale(
-                                domain=["Automated (Regression)", "Manual (Regression)"],
-                                range=["#10B981", "#6B7280"]
+                base = f_zc[reg_mask & ~not_app_mask].copy()
+                if base.empty:
+                    st.info("Sem registros Regression automatizáveis no período/projeto selecionado.")
+                else:
+                    auto_reg = (s_auto.loc[base.index] == "automated").sum()
+                    man_reg  = len(base) - auto_reg
+
+                    df_reg = pd.DataFrame({
+                        "Categoria": ["Automated (Regression)", "Manual (Regression)"],
+                        "Qtd": [int(auto_reg), int(man_reg)]
+                    })
+
+                    bar = (
+                        alt.Chart(df_reg)
+                        .mark_bar()
+                        .encode(
+                            x=alt.X("Categoria:N", title=None),
+                            y=alt.Y("Qtd:Q", title="Test Cases"),
+                            color=alt.Color(
+                                "Categoria:N",
+                                legend=None,
+                                scale=alt.Scale(
+                                    domain=["Automated (Regression)", "Manual (Regression)"],
+                                    range=["#10B981", "#6B7280"]
+                                ),
                             ),
-                        ),
-                        tooltip=[alt.Tooltip("Categoria:N"), alt.Tooltip("Qtd:Q", title="Quantidade")],
+                            tooltip=[alt.Tooltip("Categoria:N"), alt.Tooltip("Qtd:Q", title="Quantidade")],
+                        )
+                        .properties(height=220)
                     )
-                    .properties(height=220)
-                )
-                st.altair_chart(bar, use_container_width=True)
+                    st.altair_chart(bar, use_container_width=True)
 
-                total_reg = int(len(base))
-                pct = (auto_reg / total_reg * 100.0) if total_reg else 0.0
-                st.caption(f"**% Automated em Regression**: {pct:.2f}%  (Automated {auto_reg} de {total_reg})")
+                    total_reg = int(len(base))
+                    pct = (auto_reg / total_reg * 100.0) if total_reg else 0.0
+                    st.caption(f"**% Automated em Regression**: {pct:.2f}%  (Automated {auto_reg} de {total_reg})")
 
 
 if __name__ == "__main__":
