@@ -137,115 +137,6 @@ def _gauge_percent_plotly(total: int, automated: int, not_applicable: int, title
     fig.update_layout(height=300, margin=dict(l=16, r=16, t=48, b=0))
     return fig
 
-# ================== Helpers ==================
-def _first_col(df, candidates):
-    """Retorna a primeira coluna existente dentre os candidatos."""
-    for c in candidates:
-        if c in df.columns:
-            return c
-    return None
-
-def _norm_str(s):
-    import pandas as pd
-    return (
-        s.fillna("")
-         .astype(str)
-         .str.strip()
-         .str.replace(r"\s+", " ", regex=True)
-         .str.casefold()
-    )
-# =============================================
-
-
-def _chart_regressive_others_plotly(df_tc, height=420, title="Regressive × Others (Test type)"):
-    import plotly.graph_objects as go
-    import pandas as pd
-
-    col_test_type = _first_col(df_tc, [
-        "Custom Fields.Test Type",
-        "Custom Fields.Test type",
-        "customFields.Test Type",
-        "customFields.Test type",
-        "customFields.TestType",
-    ])
-    if not col_test_type or df_tc.empty:
-        return None
-
-    s = _norm_str(df_tc[col_test_type])
-    reg = (s == "regression")
-    oth = (~reg) & (s != "")
-
-    data = pd.DataFrame({
-        "Categoria": ["Others", "Regression"],
-        "Test Cases": [int(oth.sum()), int(reg.sum())]
-    })
-
-    colors = ["#94A3B8", "#10B981"]  # cinza / verde
-
-    fig = go.Figure(go.Bar(
-        x=data["Categoria"],
-        y=data["Test Cases"],
-        text=data["Test Cases"],
-        textposition="outside",
-        marker_color=colors,
-        hovertemplate="<b>%{x}</b><br>Test Cases: %{y}<extra></extra>",
-    ))
-    fig.update_layout(
-        title=title,
-        height=height,
-        margin=dict(l=8, r=8, t=40, b=8),
-        bargap=0.25,
-        xaxis=dict(title=None),
-        yaxis=dict(title="Test Cases", rangemode="tozero", gridcolor="rgba(255,255,255,0.08)"),
-        hovermode="x unified",
-        showlegend=False,
-    )
-    return fig
-
-
-def _chart_positive_negative_plotly(df_tc, height=420, title="Positive × Negative (Test class)"):
-    import plotly.graph_objects as go
-    import pandas as pd
-
-    col_test_class = _first_col(df_tc, [
-        "Custom Fields.Test Class",
-        "customFields.Test Class",
-        "customFields.TestClass",
-    ])
-    if not col_test_class or df_tc.empty:
-        return None
-
-    s = _norm_str(df_tc[col_test_class])
-    pos = (s == "positive")
-    neg = (s == "negative")
-
-    data = pd.DataFrame({
-        "Classe": ["Negative", "Positive"],
-        "Test Cases": [int(neg.sum()), int(pos.sum())]
-    })
-
-    colors = ["#EF4444", "#22C55E"]  # vermelho / verde
-
-    fig = go.Figure(go.Bar(
-        x=data["Classe"],
-        y=data["Test Cases"],
-        text=data["Test Cases"],
-        textposition="outside",
-        marker_color=colors,
-        hovertemplate="<b>%{x}</b><br>Test Cases: %{y}<extra></extra>",
-    ))
-    fig.update_layout(
-        title=title,
-        height=height,
-        margin=dict(l=8, r=8, t=40, b=8),
-        bargap=0.25,
-        xaxis=dict(title=None),
-        yaxis=dict(title="Test Cases", rangemode="tozero", gridcolor="rgba(255,255,255,0.08)"),
-        hovermode="x unified",
-        showlegend=False,
-    )
-    return fig
-
 # --------- Links por ID a partir do CSV de Test Cases ----------
 def _extract_issue_ids_from_testcases(df_zc: pd.DataFrame) -> pd.DataFrame:
     """
@@ -804,64 +695,67 @@ def pagina_dashboard_coverage_and_run():
 
         cA, cB = st.columns(2)
 
-        fig_reg = _chart_regressive_others_plotly(f_tc, height=420)
-        fig_posneg = _chart_positive_negative_plotly(f_tc, height=420)
-        
         with cA:
             # ---------------- Regressive × Others (Test type) ----------------
             st.markdown("#### Regressive × Others (Test type)")
 
-            # if f_zc.empty:
-            #     st.info("Sem dados de casos de teste (Zephyr Test Cases).")
-            # else:
-            #     tt_col = _find_col_norm(
-            #         f_zc,
-            #         ["custom fields.test type", "customfields.test type", "test type"]
-            #     )
-
-            #     if not tt_col:
-            #         st.info("Coluna 'Custom Fields.Test Type' não encontrada nos Test Cases.")
-            #     else:
-            #         s = (
-            #             f_zc[tt_col]
-            #             .astype(str)
-            #             .str.replace("\xa0", " ")
-            #             .str.strip()
-            #             .str.lower()
-            #         )
-
-            #         is_reg = s.str.contains(r"\bregress", na=False)
-
-            #         df_rr = pd.DataFrame({
-            #             "Categoria": ["Regression", "Others"],
-            #             "Qtd": [int(is_reg.sum()), int((~is_reg).sum())]
-            #         })
-
-            #         chart_rr = (
-            #             alt.Chart(df_rr)
-            #             .mark_bar()
-            #             .encode(
-            #                 x=alt.X("Categoria:N", title=None),
-            #                 y=alt.Y("Qtd:Q", title="Test Cases"),
-            #                 color=alt.Color(
-            #                     "Categoria:N",
-            #                     legend=None,
-            #                     scale=alt.Scale(
-            #                         domain=["Regression", "Others"],
-            #                         range=["#10B981", "#6B7280"]
-            #                     ),
-            #                 ),
-            #                 tooltip=[alt.Tooltip("Categoria:N"), alt.Tooltip("Qtd:Q", title="Quantidade")],
-            #             )
-            #             .properties(height=220)
-            #         )
-
-            #         st.altair_chart(chart_rr, use_container_width=True)
-
-            if fig_reg is not None:
-                st.plotly_chart(fig_reg, use_container_width=True)
+            if f_zc.empty:
+                st.info("Sem dados de casos de teste (Zephyr Test Cases).")
             else:
-                st.info("Sem dados de 'Test type' para montar o gráfico Regressive × Others.")
+                tt_col = _find_col_norm(
+                    f_zc,
+                    ["custom fields.test type", "customfields.test type", "test type"]
+                )
+
+                if not tt_col:
+                    st.info("Coluna 'Custom Fields.Test Type' não encontrada nos Test Cases.")
+                else:
+                    s = (
+                        f_zc[tt_col]
+                        .astype(str)
+                        .str.replace("\xa0", " ")
+                        .str.strip()
+                        .str.lower()
+                    )
+
+                    is_reg = s.str.contains(r"\bregress", na=False)
+
+                    df_rr = pd.DataFrame({
+                        "Categoria": ["Regression", "Others"],
+                        "Qtd": [int(is_reg.sum()), int((~is_reg).sum())]
+                    }).sort_values("Qtd", ascending=False)
+
+                    bars = (
+                        alt.Chart(df_rr)
+                        .mark_bar(size=60)
+                        .encode(
+                            x=alt.X("Categoria:N", title=None, sort='-y'),
+                            y=alt.Y("Qtd:Q", title="Test Cases", axis=alt.Axis(format=",", grid=True)),
+                            color=alt.Color(
+                                "Categoria:N",
+                                legend=None,
+                                scale=alt.Scale(
+                                    domain=["Regression", "Others"],
+                                    range=["#10B981", "#6B7280"]
+                                ),
+                            ),
+                            tooltip=[alt.Tooltip("Categoria:N"), alt.Tooltip("Qtd:Q", title="Quantidade", format=",d")],
+                        )
+                        .properties(height=340)
+                    )
+
+                    labels = (
+                        alt.Chart(df_rr)
+                        .mark_text(dy=-8, size=12, color="#E5E7EB")
+                        .encode(
+                            x=alt.X("Categoria:N", sort='-y'),
+                            y=alt.Y("Qtd:Q"),
+                            text=alt.Text("Qtd:Q", format=",d"),
+                        )
+                    )
+
+                    st.altair_chart((bars + labels), use_container_width=True)
+
         with cB:
             # ---------------- Positive × Negative (Test Cases -> Custom Fields.Test Class) ----------------
             st.markdown("#### Positive × Negative (Test class)")
@@ -896,14 +790,14 @@ def pagina_dashboard_coverage_and_run():
                         df_pn = pd.DataFrame({
                             "Classe": ["Positive", "Negative"],
                             "Qtd": [n_pos, n_neg]
-                        })
+                        }).sort_values("Qtd", ascending=False)
 
-                        ch_pn = (
+                        bars = (
                             alt.Chart(df_pn)
-                            .mark_bar()
+                            .mark_bar(size=60)
                             .encode(
-                                x=alt.X("Classe:N", title=None),
-                                y=alt.Y("Qtd:Q", title="Test Cases"),
+                                x=alt.X("Classe:N", title=None, sort='-y'),
+                                y=alt.Y("Qtd:Q", title="Test Cases", axis=alt.Axis(format=",", grid=True)),
                                 color=alt.Color(
                                     "Classe:N",
                                     legend=None,
@@ -912,12 +806,22 @@ def pagina_dashboard_coverage_and_run():
                                         range=["#22c55e", "#ef4444"]
                                     ),
                                 ),
-                                tooltip=[alt.Tooltip("Classe:N"), alt.Tooltip("Qtd:Q", title="Quantidade")],
+                                tooltip=[alt.Tooltip("Classe:N"), alt.Tooltip("Qtd:Q", title="Quantidade", format=",d")],
                             )
-                            .properties(height=220)
+                            .properties(height=340)
                         )
 
-                        st.altair_chart(ch_pn, use_container_width=True)
+                        labels = (
+                            alt.Chart(df_pn)
+                            .mark_text(dy=-8, size=12, color="#E5E7EB")
+                            .encode(
+                                x=alt.X("Classe:N", sort='-y'),
+                                y=alt.Y("Qtd:Q"),
+                                text=alt.Text("Qtd:Q", format=",d"),
+                            )
+                        )
+
+                        st.altair_chart((bars + labels), use_container_width=True)
                 
     st.markdown("---")
 
