@@ -716,133 +716,119 @@ def pagina_dashboard_coverage_and_run():
             c3.metric("Not applicable automated", n_not_app)
 
     with cB:
-        # ---------------- Regressive × Others (Test type) ----------------
-        st.markdown("#### Regressive × Others (Test type)")
 
-        if f_zc.empty:
-            st.info("Sem dados de casos de teste (Zephyr Test Cases).")
-        else:
-            tt_col = _find_col_norm(
-                f_zc,
-                ["custom fields.test type", "customfields.test type", "test type"]
-            )
+        cA, cB = st.columns(2)
 
-            if not tt_col:
-                st.info("Coluna 'Custom Fields.Test Type' não encontrada nos Test Cases.")
+        with cA:
+            # ---------------- Regressive × Others (Test type) ----------------
+            st.markdown("#### Regressive × Others (Test type)")
+
+            if f_zc.empty:
+                st.info("Sem dados de casos de teste (Zephyr Test Cases).")
             else:
-                s = (
-                    f_zc[tt_col]
-                    .astype(str)
-                    .str.replace("\xa0", " ")
-                    .str.strip()
-                    .str.lower()
+                tt_col = _find_col_norm(
+                    f_zc,
+                    ["custom fields.test type", "customfields.test type", "test type"]
                 )
 
-                is_reg = s.str.contains(r"\bregress", na=False)
-
-                df_rr = pd.DataFrame({
-                    "Categoria": ["Regression", "Others"],
-                    "Qtd": [int(is_reg.sum()), int((~is_reg).sum())]
-                })
-
-                chart_rr = (
-                    alt.Chart(df_rr)
-                    .mark_bar()
-                    .encode(
-                        x=alt.X("Categoria:N", title=None),
-                        y=alt.Y("Qtd:Q", title="Test Cases"),
-                        color=alt.Color(
-                            "Categoria:N",
-                            legend=None,
-                            scale=alt.Scale(
-                                domain=["Regression", "Others"],
-                                range=["#10B981", "#6B7280"]
-                            ),
-                        ),
-                        tooltip=[alt.Tooltip("Categoria:N"), alt.Tooltip("Qtd:Q", title="Quantidade")],
-                    )
-                    .properties(height=220)
-                )
-
-                st.altair_chart(chart_rr, use_container_width=True)
-                
-    st.markdown("---")
-
-    # ---------------- Gráficos (mantidos) ----------------
-    cA, cB = st.columns(2)
-
-    with cA:
-        # ---------------- Positive × Negative (Test Cases -> Custom Fields.Test Class) ----------------
-        st.markdown("#### Positive × Negative (Test class)")
-
-        if f_zc.empty:
-            st.info("Sem dados de casos de teste (Zephyr Test Cases).")
-        else:
-            tc_col = _find_col_norm(
-                f_zc,
-                ["custom fields.test class", "customfields.test class", "test class"]
-            )
-
-            if not tc_col:
-                st.info("Coluna 'Custom Fields.Test Class' não encontrada nos Test Cases.")
-            else:
-                s = (
-                    f_zc[tc_col]
-                    .astype(str)
-                    .str.replace("\xa0", " ")
-                    .str.strip()
-                    .str.lower()
-                )
-                is_pos = s.eq("positive")
-                is_neg = s.eq("negative")
-
-                n_pos = int(is_pos.sum())
-                n_neg = int(is_neg.sum())
-
-                if (n_pos + n_neg) == 0:
-                    st.info("Não há registros Positive/Negative no período/projeto selecionado.")
+                if not tt_col:
+                    st.info("Coluna 'Custom Fields.Test Type' não encontrada nos Test Cases.")
                 else:
-                    df_pn = pd.DataFrame({
-                        "Classe": ["Positive", "Negative"],
-                        "Qtd": [n_pos, n_neg]
+                    s = (
+                        f_zc[tt_col]
+                        .astype(str)
+                        .str.replace("\xa0", " ")
+                        .str.strip()
+                        .str.lower()
+                    )
+
+                    is_reg = s.str.contains(r"\bregress", na=False)
+
+                    df_rr = pd.DataFrame({
+                        "Categoria": ["Regression", "Others"],
+                        "Qtd": [int(is_reg.sum()), int((~is_reg).sum())]
                     })
 
-                    ch_pn = (
-                        alt.Chart(df_pn)
+                    chart_rr = (
+                        alt.Chart(df_rr)
                         .mark_bar()
                         .encode(
-                            x=alt.X("Classe:N", title=None),
+                            x=alt.X("Categoria:N", title=None),
                             y=alt.Y("Qtd:Q", title="Test Cases"),
                             color=alt.Color(
-                                "Classe:N",
+                                "Categoria:N",
                                 legend=None,
                                 scale=alt.Scale(
-                                    domain=["Positive", "Negative"],
-                                    range=["#22c55e", "#ef4444"]
+                                    domain=["Regression", "Others"],
+                                    range=["#10B981", "#6B7280"]
                                 ),
                             ),
-                            tooltip=[alt.Tooltip("Classe:N"), alt.Tooltip("Qtd:Q", title="Quantidade")],
+                            tooltip=[alt.Tooltip("Categoria:N"), alt.Tooltip("Qtd:Q", title="Quantidade")],
                         )
                         .properties(height=220)
                     )
 
-                    st.altair_chart(ch_pn, use_container_width=True)
+                    st.altair_chart(chart_rr, use_container_width=True)
+        with cB:
+            # ---------------- Positive × Negative (Test Cases -> Custom Fields.Test Class) ----------------
+            st.markdown("#### Positive × Negative (Test class)")
 
-    with cB:
-        st.markdown("#### Automated run × Manual run")
-        if f_ze.empty or "automated" not in f_ze.columns:
-            st.info("Sem execuções no período.")
-        else:
-            is_auto = _is_automated_bool_series(f_ze["automated"])
-            df_am = pd.DataFrame({"tipo": ["Automated","Manual"], "runs": [int(is_auto.sum()), int((~is_auto).sum())]})
-            ch = alt.Chart(df_am).mark_bar().encode(
-                x=alt.X("tipo:N", title=None), y=alt.Y("runs:Q", title="Runs"),
-                color=alt.Color("tipo:N", legend=None)
-            ).properties(height=220)
-            st.altair_chart(ch, use_container_width=True)
+            if f_zc.empty:
+                st.info("Sem dados de casos de teste (Zephyr Test Cases).")
+            else:
+                tc_col = _find_col_norm(
+                    f_zc,
+                    ["custom fields.test class", "customfields.test class", "test class"]
+                )
 
+                if not tc_col:
+                    st.info("Coluna 'Custom Fields.Test Class' não encontrada nos Test Cases.")
+                else:
+                    s = (
+                        f_zc[tc_col]
+                        .astype(str)
+                        .str.replace("\xa0", " ")
+                        .str.strip()
+                        .str.lower()
+                    )
+                    is_pos = s.eq("positive")
+                    is_neg = s.eq("negative")
+
+                    n_pos = int(is_pos.sum())
+                    n_neg = int(is_neg.sum())
+
+                    if (n_pos + n_neg) == 0:
+                        st.info("Não há registros Positive/Negative no período/projeto selecionado.")
+                    else:
+                        df_pn = pd.DataFrame({
+                            "Classe": ["Positive", "Negative"],
+                            "Qtd": [n_pos, n_neg]
+                        })
+
+                        ch_pn = (
+                            alt.Chart(df_pn)
+                            .mark_bar()
+                            .encode(
+                                x=alt.X("Classe:N", title=None),
+                                y=alt.Y("Qtd:Q", title="Test Cases"),
+                                color=alt.Color(
+                                    "Classe:N",
+                                    legend=None,
+                                    scale=alt.Scale(
+                                        domain=["Positive", "Negative"],
+                                        range=["#22c55e", "#ef4444"]
+                                    ),
+                                ),
+                                tooltip=[alt.Tooltip("Classe:N"), alt.Tooltip("Qtd:Q", title="Quantidade")],
+                            )
+                            .properties(height=220)
+                        )
+
+                        st.altair_chart(ch_pn, use_container_width=True)
+                
     st.markdown("---")
 
+    # ---------------- Gráficos (mantidos) ----------------
     cA, cB = st.columns(2)
 
     with cA:
@@ -866,61 +852,78 @@ def pagina_dashboard_coverage_and_run():
                 color=alt.Color("tipo:N", title=None)
             ).properties(height=300)
             st.altair_chart(ch, use_container_width=True)
-    
+
     with cB:
-        # ---------------- Automation in regressive (por Test Case) ----------------
-        st.markdown("#### Automation in regressive")
-
-        if f_zc.empty:
-            st.info("Sem dados de casos de teste (Zephyr Test Cases).")
-        else:
-            tt_col  = _find_col_norm(f_zc, ["custom fields.test type", "customfields.test type", "test type"])
-            auto_tc = _find_col_norm(f_zc, ["custom fields.automation status", "customfields.automation status", "automation status"])
-
-            if not tt_col or not auto_tc:
-                st.info("Colunas 'Test Type' / 'Automation Status' não encontradas nos Test Cases.")
+        
+        cA, cB = st.columns(2)
+        
+        with cA:
+            st.markdown("#### Automated run × Manual run")
+            if f_ze.empty or "automated" not in f_ze.columns:
+                st.info("Sem execuções no período.")
             else:
-                s_type = f_zc[tt_col].astype(str).str.replace("\xa0", " ").str.strip().str.lower()
-                s_auto = f_zc[auto_tc].astype(str).str.replace("\xa0", " ").str.strip().str.lower()
+                is_auto = _is_automated_bool_series(f_ze["automated"])
+                df_am = pd.DataFrame({"tipo": ["Automated","Manual"], "runs": [int(is_auto.sum()), int((~is_auto).sum())]})
+                ch = alt.Chart(df_am).mark_bar().encode(
+                    x=alt.X("tipo:N", title=None), y=alt.Y("runs:Q", title="Runs"),
+                    color=alt.Color("tipo:N", legend=None)
+                ).properties(height=220)
+                st.altair_chart(ch, use_container_width=True)
+        
+        with cB:        
+            # ---------------- Automation in regressive (por Test Case) ----------------
+            st.markdown("#### Automation in regressive")
 
-                reg_mask     = s_type.str.contains(r"\bregress", na=False)
-                not_app_mask = s_auto.isin({"n/a", "na"}) | s_auto.str.contains("not applic|nor applic", na=False)
+            if f_zc.empty:
+                st.info("Sem dados de casos de teste (Zephyr Test Cases).")
+            else:
+                tt_col  = _find_col_norm(f_zc, ["custom fields.test type", "customfields.test type", "test type"])
+                auto_tc = _find_col_norm(f_zc, ["custom fields.automation status", "customfields.automation status", "automation status"])
 
-                base = f_zc[reg_mask & ~not_app_mask].copy()
-                if base.empty:
-                    st.info("Sem registros Regression automatizáveis no período/projeto selecionado.")
+                if not tt_col or not auto_tc:
+                    st.info("Colunas 'Test Type' / 'Automation Status' não encontradas nos Test Cases.")
                 else:
-                    auto_reg = (s_auto.loc[base.index] == "automated").sum()
-                    man_reg  = len(base) - auto_reg
+                    s_type = f_zc[tt_col].astype(str).str.replace("\xa0", " ").str.strip().str.lower()
+                    s_auto = f_zc[auto_tc].astype(str).str.replace("\xa0", " ").str.strip().str.lower()
 
-                    df_reg = pd.DataFrame({
-                        "Categoria": ["Automated (Regression)", "Manual (Regression)"],
-                        "Qtd": [int(auto_reg), int(man_reg)]
-                    })
+                    reg_mask     = s_type.str.contains(r"\bregress", na=False)
+                    not_app_mask = s_auto.isin({"n/a", "na"}) | s_auto.str.contains("not applic|nor applic", na=False)
 
-                    bar = (
-                        alt.Chart(df_reg)
-                        .mark_bar()
-                        .encode(
-                            x=alt.X("Categoria:N", title=None),
-                            y=alt.Y("Qtd:Q", title="Test Cases"),
-                            color=alt.Color(
-                                "Categoria:N",
-                                legend=None,
-                                scale=alt.Scale(
-                                    domain=["Automated (Regression)", "Manual (Regression)"],
-                                    range=["#10B981", "#6B7280"]
+                    base = f_zc[reg_mask & ~not_app_mask].copy()
+                    if base.empty:
+                        st.info("Sem registros Regression automatizáveis no período/projeto selecionado.")
+                    else:
+                        auto_reg = (s_auto.loc[base.index] == "automated").sum()
+                        man_reg  = len(base) - auto_reg
+
+                        df_reg = pd.DataFrame({
+                            "Categoria": ["Automated (Regression)", "Manual (Regression)"],
+                            "Qtd": [int(auto_reg), int(man_reg)]
+                        })
+
+                        bar = (
+                            alt.Chart(df_reg)
+                            .mark_bar()
+                            .encode(
+                                x=alt.X("Categoria:N", title=None),
+                                y=alt.Y("Qtd:Q", title="Test Cases"),
+                                color=alt.Color(
+                                    "Categoria:N",
+                                    legend=None,
+                                    scale=alt.Scale(
+                                        domain=["Automated (Regression)", "Manual (Regression)"],
+                                        range=["#10B981", "#6B7280"]
+                                    ),
                                 ),
-                            ),
-                            tooltip=[alt.Tooltip("Categoria:N"), alt.Tooltip("Qtd:Q", title="Quantidade")],
+                                tooltip=[alt.Tooltip("Categoria:N"), alt.Tooltip("Qtd:Q", title="Quantidade")],
+                            )
+                            .properties(height=220)
                         )
-                        .properties(height=220)
-                    )
-                    st.altair_chart(bar, use_container_width=True)
+                        st.altair_chart(bar, use_container_width=True)
 
-                    total_reg = int(len(base))
-                    pct = (auto_reg / total_reg * 100.0) if total_reg else 0.0
-                    st.caption(f"**% Automated em Regression**: {pct:.2f}%  (Automated {auto_reg} de {total_reg})")
+                        total_reg = int(len(base))
+                        pct = (auto_reg / total_reg * 100.0) if total_reg else 0.0
+                        st.caption(f"**% Automated em Regression**: {pct:.2f}%  (Automated {auto_reg} de {total_reg})")
 
 
 if __name__ == "__main__":
