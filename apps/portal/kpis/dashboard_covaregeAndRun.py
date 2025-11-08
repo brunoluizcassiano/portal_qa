@@ -82,20 +82,25 @@ def _is_closed(status: str) -> bool:
     return bool(re.search(r"(DONE|CLOSED|RESOLVED)", s))
 
 def _gauge_percent_plotly(total: int, automated: int, not_applicable: int, title: str = "% Automated Test"):
+    """
+    Gauge semicírculo (Plotly) sem caixas de diálogo.
+    - Setor 'Not applicable' em CINZA.
+    - Linha do teto (threshold) destacada, SEM balões/annotations.
+    """
     import plotly.graph_objects as go
     import numpy as np
 
     pct_now = (automated / total * 100.0) if total else 0.0
     cap_pct = ((total - not_applicable) / total * 100.0) if total else 0.0
     cap_pct = float(np.clip(cap_pct, 0.0, 100.0))
-    na_pct  = (not_applicable / total * 100.0) if total else 0.0
 
     dom_x = [0.08, 0.92]
     dom_y = [0.15, 0.92]
 
-    c_val   = "#22D3EE"                  # barra atual
+    # Cores
+    c_val   = "#22D3EE"                  # barra do valor atual
     c_able  = "rgba(34,211,238,0.15)"    # atingível
-    c_na    = "rgba(156,163,175,0.85)"   # NOT APPLICABLE (cinza mais escuro)
+    c_na    = "rgba(156,163,175,0.85)"   # NOT APPLICABLE (cinza)
     c_teto  = "#F59E0B"                  # linha do teto
 
     fig = go.Figure(go.Indicator(
@@ -105,15 +110,18 @@ def _gauge_percent_plotly(total: int, automated: int, not_applicable: int, title
         title={"text": title, "font": {"size": 14}},
         gauge={
             "shape": "angular",
-            "axis": {"range": [0, 100],
-                     "tickmode": "array",
-                     "tickvals": [0, 20, 40, 60, 80, 100],
-                     "tickfont": {"size": 10}},
+            "axis": {
+                "range": [0, 100],
+                "tickmode": "array",
+                "tickvals": [0, 20, 40, 60, 80, 100],
+                "tickfont": {"size": 10}
+            },
             "bar": {"color": c_val},
             "steps": [
                 {"range": [0, cap_pct],   "color": c_able},
                 {"range": [cap_pct, 100], "color": c_na},
             ],
+            # mantém só a linha do teto (sem annotations)
             "threshold": {
                 "line": {"color": c_teto, "width": 6},
                 "thickness": 1.0,
@@ -124,38 +132,7 @@ def _gauge_percent_plotly(total: int, automated: int, not_applicable: int, title
         domain={"x": dom_x, "y": dom_y}
     ))
 
-    # ===== Balão exatamente na linha do teto =====
-    x0, x1 = dom_x; y0, y1 = dom_y
-    w = x1 - x0; h = y1 - y0
-    cx = (x0 + x1) / 2.0
-    r  = min(w / 2.0, h) * 0.96
-    cy = y0
-    theta_cap = -np.pi + (np.pi * cap_pct / 100.0)
-    x_cap = cx + r * np.cos(theta_cap)
-    y_cap = cy + r * np.sin(theta_cap)
-    fig.add_annotation(
-        x=float(x_cap), y=float(y_cap), xref="paper", yref="paper",
-        text=f"<b>Máx. {cap_pct:.1f}%</b><br><span style='color:#E5E7EB'>({not_applicable} Not applicable)</span>",
-        showarrow=True, arrowhead=3, arrowcolor=c_teto, ax=0, ay=-14,
-        bgcolor="rgba(17,24,39,0.95)", bordercolor=c_teto,
-        font={"size": 12, "color": "#FFFFFF"}
-    )
-
-    # ===== Rótulo dentro do setor cinza (Not applicable) =====
-    if cap_pct < 100:  # só faz sentido se existir setor NA
-        p_mid = (cap_pct + 100.0) / 2.0                 # % central do setor NA
-        theta_mid = -np.pi + (np.pi * p_mid / 100.0)    # ângulo no meio do NA
-        r_lab = r * 0.82                                 # um pouco para dentro do arco
-        x_na = cx + r_lab * np.cos(theta_mid)
-        y_na = cy + r_lab * np.sin(theta_mid)
-        fig.add_annotation(
-            x=float(x_na), y=float(y_na), xref="paper", yref="paper",
-            text=f"<b>Not applicable</b><br>{not_applicable}  ({na_pct:.1f}%)",
-            showarrow=False,
-            bgcolor="rgba(17,24,39,0.90)", bordercolor="#9CA3AF",
-            font={"size": 11, "color": "#FFFFFF"},
-            align="center"
-        )
+    # >>> sem add_annotation (nenhum balão/caixa) <<<
 
     fig.update_layout(height=300, margin=dict(l=16, r=16, t=48, b=0))
     return fig
