@@ -86,7 +86,7 @@ def _gauge_percent_plotly(total: int, automated: int, not_applicable: int, title
     dom_x = [0.08, 0.92]
     dom_y = [0.15, 0.92]
 
-    c_val   = "#22D3EE"
+    c_val   = "#22c55e"
     c_able  = "rgba(34,211,238,0.15)"
     c_na    = "rgba(156,163,175,0.85)"
     c_teto  = "#F59E0B"
@@ -674,12 +674,12 @@ def pagina_dashboard_coverage_and_run():
                                 legend=None,
                                 scale=alt.Scale(
                                     domain=["Regression", "Others"],
-                                    range=["#10B981", "#6B7280"]
+                                    range=["#22c55e", "#6B7280"]
                                 ),
                             ),
                             tooltip=[alt.Tooltip("Categoria:N"), alt.Tooltip("Qtd:Q", title="Quantidade", format=",d")],
                         )
-                        .properties(height=470)
+                        .properties(height=460)
                     )
 
                     labels = (
@@ -745,7 +745,7 @@ def pagina_dashboard_coverage_and_run():
                                 ),
                                 tooltip=[alt.Tooltip("Classe:N"), alt.Tooltip("Qtd:Q", title="Quantidade", format=",d")],
                             )
-                            .properties(height=470)
+                            .properties(height=460)
                         )
 
                         labels = (
@@ -794,7 +794,7 @@ def pagina_dashboard_coverage_and_run():
                 x=alt.X("month:N", title="Mês"),
                 y=alt.Y("runs:Q", title="Runs"),
                 color=alt.Color("tipo:N", legend=legend_opts)
-            ).properties(height=430, padding={"bottom": 40})
+            ).properties(height=420, padding={"bottom": 40})
             st.altair_chart(ch, use_container_width=True)
 
     with cR:
@@ -877,7 +877,7 @@ def pagina_dashboard_coverage_and_run():
                                     legend=None,
                                     scale=alt.Scale(
                                         domain=["Automated (Regression)", "Manual (Regression)"],
-                                        range=["#10B981", "#6B7280"]
+                                        range=["#22c55e", "#6B7280"]
                                     ),
                                 ),
                                 tooltip=[alt.Tooltip("Categoria:N"), alt.Tooltip("Qtd:Q", title="Quantidade", format=",d")],
