@@ -679,7 +679,7 @@ def pagina_dashboard_coverage_and_run():
                             ),
                             tooltip=[alt.Tooltip("Categoria:N"), alt.Tooltip("Qtd:Q", title="Quantidade", format=",d")],
                         )
-                        .properties(height=340)
+                        .properties(height=470)
                     )
 
                     labels = (
@@ -745,7 +745,7 @@ def pagina_dashboard_coverage_and_run():
                                 ),
                                 tooltip=[alt.Tooltip("Classe:N"), alt.Tooltip("Qtd:Q", title="Quantidade", format=",d")],
                             )
-                            .properties(height=340)
+                            .properties(height=470)
                         )
 
                         labels = (
@@ -794,7 +794,7 @@ def pagina_dashboard_coverage_and_run():
                 x=alt.X("month:N", title="Mês"),
                 y=alt.Y("runs:Q", title="Runs"),
                 color=alt.Color("tipo:N", legend=legend_opts)
-            ).properties(height=300, padding={"bottom": 40})
+            ).properties(height=430, padding={"bottom": 40})
             st.altair_chart(ch, use_container_width=True)
 
     with cR:
@@ -815,7 +815,7 @@ def pagina_dashboard_coverage_and_run():
                     .mark_bar(size=60)
                     .encode(
                         x=alt.X("tipo:N", title=None, sort='-y'),
-                        y=alt.Y("runs:Q", title="Runs", axis=alt.Axis(format=",", grid=True)),
+                        y=alt.Y("runs:Q", title="Runs", axis=alt.Axis(format=",d", grid=True)),
                         color=alt.Color(
                             "tipo:N",
                             legend=None,
