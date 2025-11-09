@@ -2,6 +2,7 @@
 import re
 import streamlit as st
 import pandas as pd
+import np as _np_alias  # evita colisão com np do Altair em ambientes específicos
 import numpy as np
 import altair as alt
 import plotly.graph_objects as go
@@ -13,14 +14,11 @@ from .analytics.constants import (
     JIRA_EPIC, JIRA_STORY, JIRA_BUG, JIRA_SUBBUG, JIRA_PROJ,
     ZEPHYR_TC, ZEPHYR_EXEC_MAIN, ZEPHYR_EXEC_FALLBACK,
 )
-
-# FUNC opcional
 try:
     from .analytics.constants import JIRA_FUNC
 except Exception:
     JIRA_FUNC = None
 
-# CYCLES opcionais
 try:
     from .analytics.constants import ZEPHYR_CYCLE_MAIN, ZEPHYR_CYCLE_FALLBACK
 except Exception:
@@ -35,9 +33,7 @@ except Exception:
     def ensure_project_on_executions(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
-# --------------------------------------------------------------------
-# Helpers
-# --------------------------------------------------------------------
+# -------------------- helpers --------------------
 def _pct(a, b):
     return (float(a) / float(b) * 100.0) if (b not in (0, None, np.nan) and float(b) != 0.0) else 0.0
 
@@ -76,15 +72,9 @@ def _is_closed(status: str) -> bool:
     return bool(re.search(r"(DONE|CLOSED|RESOLVED)", s))
 
 def _gauge_percent_plotly(total: int, automated: int, not_applicable: int, title: str = "% Automated Test"):
-    import plotly.graph_objects as go
-    import numpy as np
-
     pct_now = (automated / total * 100.0) if total else 0.0
     cap_pct = ((total - not_applicable) / total * 100.0) if total else 0.0
     cap_pct = float(np.clip(cap_pct, 0.0, 100.0))
-
-    dom_x = [0.08, 0.92]
-    dom_y = [0.15, 0.92]
 
     c_val   = "#22D3EE"
     c_able  = "rgba(34,211,238,0.15)"
@@ -116,9 +106,8 @@ def _gauge_percent_plotly(total: int, automated: int, not_applicable: int, title
             },
             "bgcolor": "rgba(0,0,0,0)",
         },
-        domain={"x": dom_x, "y": dom_y}
+        domain={"x": [0.08, 0.92], "y": [0.15, 0.92]}
     ))
-
     fig.update_layout(height=300, margin=dict(l=16, r=16, t=48, b=0))
     return fig
 
@@ -201,9 +190,7 @@ _PROJ_CANDS = [
     "domain", "tribe", "tribo", "tribo (projeto)"
 ]
 
-# --------------------------------------------------------------------
-# Página
-# --------------------------------------------------------------------
+# -------------------- página --------------------
 def pagina_dashboard_coverage_and_run():
     try:
         st.set_page_config(page_title="Coverage and Run", layout="wide")
@@ -221,14 +208,13 @@ def pagina_dashboard_coverage_and_run():
 
     st.markdown("### Coverage and Run")
 
-    # ---------------- Carregamento ----------------
+    # --- dados
     df_story_raw  = safe_read_csv(JIRA_STORY)
     df_epic_raw   = safe_read_csv(JIRA_EPIC)
     df_bug        = normalize_bugs(safe_read_csv(JIRA_BUG))
     df_subbug     = normalize_bugs(safe_read_csv(JIRA_SUBBUG))
     df_proj       = safe_read_csv(JIRA_PROJ)
     df_zc         = safe_read_csv(ZEPHYR_TC)
-
     df_ze_raw     = safe_read_csv([ZEPHYR_EXEC_MAIN, ZEPHYR_EXEC_FALLBACK])
     df_ze         = ensure_project_on_executions(df_ze_raw.copy())
 
@@ -246,7 +232,7 @@ def pagina_dashboard_coverage_and_run():
         df_func_raw = pd.DataFrame()
         df_func = pd.DataFrame()
 
-    # ---------------- Normalize Issues ----------------
+    # --- normalize issues
     df_story = normalize_issue_df(df_story_raw)
     df_epic  = normalize_issue_df(df_epic_raw)
     for d in (df_story, df_epic, df_func):
@@ -255,7 +241,7 @@ def pagina_dashboard_coverage_and_run():
         elif not d.empty:
             d["created_date"] = pd.NaT
 
-    # ---------------- Execuções ----------------
+    # --- execuções
     if not df_ze.empty:
         exec_col = _first_col(df_ze, ["actualEndDate", "executedOn"])
         if exec_col:
@@ -288,7 +274,7 @@ def pagina_dashboard_coverage_and_run():
 
         df_ze["projectKey"] = df_ze["projectKey"].astype("category")
 
-    # ---------------- Test Cases ----------------
+    # --- test cases
     if not df_zc.empty:
         if "projectKey" not in df_zc.columns:
             df_zc["projectKey"] = _project_from_key(df_zc["key"]) if "key" in df_zc.columns else ""
@@ -308,7 +294,7 @@ def pagina_dashboard_coverage_and_run():
                 df_zc["year"] = pd.NA
         df_zc["projectKey"] = df_zc["projectKey"].astype("category")
 
-    # ---------------- Test Cycles ----------------
+    # --- cycles
     if not df_cycle.empty:
         if "projectKey" not in df_cycle.columns:
             src_col = "key" if "key" in df_cycle.columns else ("name" if "name" in df_cycle.columns else None)
@@ -316,9 +302,7 @@ def pagina_dashboard_coverage_and_run():
                 df_cycle["projectKey"] = _project_from_key(df_cycle[src_col]).str.upper()
             else:
                 df_cycle["projectKey"] = ""
-        cyc_col = _find_col_norm(
-            df_cycle, ["planned start date", "plannedstartdate", "start date", "startdate"]
-        )
+        cyc_col = _find_col_norm(df_cycle, ["planned start date", "plannedstartdate", "start date", "startdate"])
         if cyc_col:
             cdt = pd.to_datetime(df_cycle[cyc_col], errors="coerce", utc=True)
             df_cycle["cycle_date"] = cdt.dt.date
@@ -327,7 +311,7 @@ def pagina_dashboard_coverage_and_run():
             if "cycle_date" not in df_cycle.columns:
                 df_cycle["cycle_date"] = pd.NaT
 
-    # ---------------- Filtros ----------------
+    # --- filtros
     def _collect_projects(df: pd.DataFrame) -> list[str]:
         if df is None or df.empty:
             return []
@@ -475,7 +459,7 @@ def pagina_dashboard_coverage_and_run():
     f_ze    = _f_proj(_f_period_exec(df_ze),       sel_project)
     f_cyc   = _f_proj(_f_period_cycle(df_cycle),   sel_project)
 
-    # ---------------- Cards topo ----------------
+    # --- cards
     col1 = st.columns(4)
     with col1[0]:
         if not df_proj.empty and {"name","key"}.issubset(df_proj.columns):
@@ -495,7 +479,6 @@ def pagina_dashboard_coverage_and_run():
     cov_slot = col1[3].empty()
     cov_slot.metric("% Story Coverage", "—")
 
-    # ---------------- TEST CASES ----------------
     automated_tests = total_tests = manual_tests = 0
     if not f_zc.empty:
         auto_col = _first_col(f_zc, ["customFields.Automation Status"])
@@ -540,7 +523,6 @@ def pagina_dashboard_coverage_and_run():
         total_runs = int(man_runs + aut_runs)
         st.metric("# Total Run", total_runs)
 
-    # ---------------- Cálculos especiais ----------------
     links_by_id = _extract_issue_ids_from_testcases(f_zc) if not f_zc.empty else pd.DataFrame(columns=["tc_key","issue_id"])
     story_ids = pd.to_numeric(f_story.get("id", pd.Series(dtype="object")), errors="coerce").dropna().astype("Int64")
     if not links_by_id.empty and not story_ids.empty:
@@ -567,7 +549,6 @@ def pagina_dashboard_coverage_and_run():
             avg_tests_per_issue = 0.0
     else:
         avg_tests_per_issue = 0.0
-
     with col3[3]:
         st.metric("# Test average per issue", f"{avg_tests_per_issue:.2f}")
 
@@ -594,23 +575,20 @@ def pagina_dashboard_coverage_and_run():
 
     st.markdown("---")
 
-    # ---------------- Gráficos ----------------
+    # ---------------- gráficos ----------------
     cA, cB = st.columns(2)
 
     with cA:
         st.markdown("#### Automated Backlog")
-
         if f_zc.empty:
             st.info("Sem dados de casos de teste (Zephyr Test Cases).")
         else:
             auto_col = _find_col_norm(
-                f_zc,
-                ["customfields.automation status", "custom fields.automation status", "automation status"]
+                f_zc, ["customfields.automation status", "custom fields.automation status", "automation status"]
             )
-
             if auto_col:
                 s_status = f_zc[auto_col].astype(str).str.replace("\xa0", " ").str.strip().str.lower()
-                auto_mask = s_status.eq("automated")
+                auto_mask    = s_status.eq("automated")
                 not_app_mask = s_status.apply(_is_not_applicable_from_custom_status)
             else:
                 auto_mask = pd.Series(False, index=f_zc.index)
@@ -622,7 +600,7 @@ def pagina_dashboard_coverage_and_run():
             n_backlog  = max(0, n_total - n_auto - n_not_app)
 
             st.plotly_chart(_gauge_percent_plotly(n_total, n_auto, n_not_app, "% Automated Test"),
-                                use_container_width=True)
+                            use_container_width=True)
             st.caption("O setor cinza indica a parte inatingível do 100% devido aos testes marcados como Not applicable.")
 
             c1, c2, c3 = st.columns(3)
@@ -631,33 +609,22 @@ def pagina_dashboard_coverage_and_run():
             c3.metric("Not applicable automated", n_not_app)
 
     with cB:
-
         cA2, cB2 = st.columns(2)
 
+        # -------- Regressive x Others ----------
         with cA2:
             st.markdown("#### Regressive × Others (Test type)")
-
             if f_zc.empty:
                 st.info("Sem dados de casos de teste (Zephyr Test Cases).")
             else:
-                tt_col = _find_col_norm(
-                    f_zc,
-                    ["custom fields.test type", "customfields.test type", "test type"]
-                )
-
+                tt_col = _find_col_norm(f_zc, ["custom fields.test type", "customfields.test type", "test type"])
                 if not tt_col:
                     st.info("Coluna 'Custom Fields.Test Type' não encontrada nos Test Cases.")
                 else:
                     s = (
-                        f_zc[tt_col]
-                        .astype(str)
-                        .str.replace("\xa0", " ")
-                        .str.strip()
-                        .str.lower()
+                        f_zc[tt_col].astype(str).str.replace("\xa0", " ").str.strip().str.lower()
                     )
-
                     is_reg = s.str.contains(r"\bregress", na=False)
-
                     df_rr = pd.DataFrame({
                         "Categoria": ["Regression", "Others"],
                         "Qtd": [int(is_reg.sum()), int((~is_reg).sum())]
@@ -668,7 +635,10 @@ def pagina_dashboard_coverage_and_run():
                         .mark_bar(size=60)
                         .encode(
                             x=alt.X("Categoria:N", title=None, sort='-y'),
-                            y=alt.Y("Qtd:Q", title="Test Cases", axis=alt.Axis(format=",", grid=True)),
+                            y=alt.Y("Qtd:Q",
+                                    title="Test Cases",
+                                    axis=alt.Axis(format=",d", grid=True),  # <<< INTEIROS
+                                    scale=alt.Scale(zero=True)),
                             color=alt.Color(
                                 "Categoria:N",
                                 legend=None,
@@ -681,7 +651,6 @@ def pagina_dashboard_coverage_and_run():
                         )
                         .properties(height=340)
                     )
-
                     labels = (
                         alt.Chart(df_rr)
                         .mark_text(dy=-8, size=12, color="#E5E7EB")
@@ -691,63 +660,46 @@ def pagina_dashboard_coverage_and_run():
                             text=alt.Text("Qtd:Q", format=",d"),
                         )
                     )
-
                     st.altair_chart((bars + labels), use_container_width=True)
 
+        # -------- Positive x Negative ----------
         with cB2:
             st.markdown("#### Positive × Negative (Test class)")
-
             if f_zc.empty:
                 st.info("Sem dados de casos de teste (Zephyr Test Cases).")
             else:
-                tc_col = _find_col_norm(
-                    f_zc,
-                    ["custom fields.test class", "customfields.test class", "test class"]
-                )
-
+                tc_col = _find_col_norm(f_zc, ["custom fields.test class", "customfields.test class", "test class"])
                 if not tc_col:
                     st.info("Coluna 'Custom Fields.Test Class' não encontrada nos Test Cases.")
                 else:
                     s = (
-                        f_zc[tc_col]
-                        .astype(str)
-                        .str.replace("\xa0", " ")
-                        .str.strip()
-                        .str.lower()
+                        f_zc[tc_col].astype(str).str.replace("\xa0", " ").str.strip().str.lower()
                     )
                     is_pos = s.eq("positive")
                     is_neg = s.eq("negative")
-
-                    n_pos = int(is_pos.sum())
-                    n_neg = int(is_neg.sum())
-
+                    n_pos, n_neg = int(is_pos.sum()), int(is_neg.sum())
                     if (n_pos + n_neg) == 0:
                         st.info("Não há registros Positive/Negative no período/projeto selecionado.")
                     else:
-                        df_pn = pd.DataFrame({
-                            "Classe": ["Positive", "Negative"],
-                            "Qtd": [n_pos, n_neg]
-                        }).sort_values("Qtd", ascending=False)
-
+                        df_pn = pd.DataFrame({"Classe": ["Positive", "Negative"], "Qtd": [n_pos, n_neg]}).sort_values("Qtd", ascending=False)
                         bars = (
                             alt.Chart(df_pn)
                             .mark_bar(size=60)
                             .encode(
                                 x=alt.X("Classe:N", title=None, sort='-y'),
-                                y=alt.Y("Qtd:Q", title="Test Cases", axis=alt.Axis(format=",", grid=True)),
+                                y=alt.Y("Qtd:Q",
+                                        title="Test Cases",
+                                        axis=alt.Axis(format=",d", grid=True),  # <<< INTEIROS
+                                        scale=alt.Scale(zero=True)),
                                 color=alt.Color(
                                     "Classe:N",
                                     legend=None,
-                                    scale=alt.Scale(
-                                        domain=["Positive", "Negative"],
-                                        range=["#22c55e", "#ef4444"]
-                                    ),
+                                    scale=alt.Scale(domain=["Positive", "Negative"], range=["#22c55e", "#ef4444"]),
                                 ),
                                 tooltip=[alt.Tooltip("Classe:N"), alt.Tooltip("Qtd:Q", title="Quantidade", format=",d")],
                             )
                             .properties(height=340)
                         )
-
                         labels = (
                             alt.Chart(df_pn)
                             .mark_text(dy=-8, size=12, color="#E5E7EB")
@@ -757,12 +709,11 @@ def pagina_dashboard_coverage_and_run():
                                 text=alt.Text("Qtd:Q", format=",d"),
                             )
                         )
-
                         st.altair_chart((bars + labels), use_container_width=True)
 
     st.markdown("---")
 
-    # ---------------- Linha mensal e barras de runs ----------------
+    # -------- linha mensal & barras runs --------
     cL, cR = st.columns(2)
 
     with cL:
@@ -779,37 +730,35 @@ def pagina_dashboard_coverage_and_run():
                 df_month = df_month.sort_values("month_dt")
             except Exception:
                 pass
-            ch = alt.Chart(df_month).mark_line(point=True).encode(
-                x=alt.X("month:N", title="Mês"),
-                y=alt.Y("runs:Q", title="Runs"),
-                color=alt.Color("tipo:N", title=None)
-            ).properties(height=300)
+            ch = (
+                alt.Chart(df_month)
+                .mark_line(point=True)
+                .encode(
+                    x=alt.X("month:N", title="Mês"),
+                    y=alt.Y("runs:Q", title="Runs", axis=alt.Axis(format=",d"), scale=alt.Scale(zero=True)),  # <<< INTEIROS
+                    color=alt.Color("tipo:N", title=None)
+                )
+                .properties(height=300)
+            )
             st.altair_chart(ch, use_container_width=True)
 
     with cR:
         cR1, cR2 = st.columns(2)
 
         with cR1:
-            # >>>>>>>>> ATUALIZADO: Automated run × Manual run (barras altas, rótulos, ordenação) <<<<<<<<
             st.markdown("#### Automated run × Manual run")
             if f_ze.empty or "automated" not in f_ze.columns:
                 st.info("Sem execuções no período.")
             else:
                 is_auto = _is_automated_bool_series(f_ze["automated"])
-                df_am = pd.DataFrame({"tipo": ["Automated","Manual"], "runs": [int(is_auto.sum()), int((~is_auto).sum())]}) \
-                        .sort_values("runs", ascending=False)
-
+                df_am = pd.DataFrame({"tipo": ["Automated","Manual"], "runs": [int(is_auto.sum()), int((~is_auto).sum())]}).sort_values("runs", ascending=False)
                 bars = (
                     alt.Chart(df_am)
                     .mark_bar(size=60)
                     .encode(
                         x=alt.X("tipo:N", title=None, sort='-y'),
-                        y=alt.Y("runs:Q", title="Runs", axis=alt.Axis(format=",", grid=True)),
-                        color=alt.Color(
-                            "tipo:N",
-                            legend=None,
-                            scale=alt.Scale(domain=["Automated","Manual"], range=["#60A5FA","#93C5FD"])
-                        ),
+                        y=alt.Y("runs:Q", title="Runs", axis=alt.Axis(format=",d", grid=True), scale=alt.Scale(zero=True)),  # <<< INTEIROS
+                        color=alt.Color("tipo:N", legend=None, scale=alt.Scale(domain=["Automated","Manual"], range=["#60A5FA","#93C5FD"])),
                         tooltip=[alt.Tooltip("tipo:N"), alt.Tooltip("runs:Q", title="Quantidade", format=",d")],
                     )
                     .properties(height=340)
@@ -826,49 +775,40 @@ def pagina_dashboard_coverage_and_run():
                 st.altair_chart((bars + labels), use_container_width=True)
 
         with cR2:
-            # >>>>>>>>> ATUALIZADO: Automation in regressive (barras altas, rótulos, ordenação) <<<<<<<<
             st.markdown("#### Automation in regressive")
             if f_zc.empty:
                 st.info("Sem dados de casos de teste (Zephyr Test Cases).")
             else:
                 tt_col  = _find_col_norm(f_zc, ["custom fields.test type", "customfields.test type", "test type"])
                 auto_tc = _find_col_norm(f_zc, ["custom fields.automation status", "customfields.automation status", "automation status"])
-
                 if not tt_col or not auto_tc:
                     st.info("Colunas 'Test Type' / 'Automation Status' não encontradas nos Test Cases.")
                 else:
                     s_type = f_zc[tt_col].astype(str).str.replace("\xa0", " ").str.strip().str.lower()
                     s_auto = f_zc[auto_tc].astype(str).str.replace("\xa0", " ").str.strip().str.lower()
-
                     reg_mask     = s_type.str.contains(r"\bregress", na=False)
                     not_app_mask = s_auto.isin({"n/a", "na"}) | s_auto.str.contains("not applic|nor applic", na=False)
-
                     base = f_zc[reg_mask & ~not_app_mask].copy()
                     if base.empty:
                         st.info("Sem registros Regression automatizáveis no período/projeto selecionado.")
                     else:
                         auto_reg = (s_auto.loc[base.index] == "automated").sum()
                         man_reg  = len(base) - auto_reg
-
                         df_reg = pd.DataFrame({
                             "Categoria": ["Automated (Regression)", "Manual (Regression)"],
                             "Qtd": [int(auto_reg), int(man_reg)]
                         }).sort_values("Qtd", ascending=False)
-
                         bars = (
                             alt.Chart(df_reg)
                             .mark_bar(size=60)
                             .encode(
                                 x=alt.X("Categoria:N", title=None, sort='-y'),
-                                y=alt.Y("Qtd:Q", title="Test Cases", axis=alt.Axis(format=",", grid=True)),
-                                color=alt.Color(
-                                    "Categoria:N",
-                                    legend=None,
-                                    scale=alt.Scale(
-                                        domain=["Automated (Regression)", "Manual (Regression)"],
-                                        range=["#10B981", "#6B7280"]
-                                    ),
-                                ),
+                                y=alt.Y("Qtd:Q", title="Test Cases",
+                                        axis=alt.Axis(format=",d", grid=True),  # <<< INTEIROS
+                                        scale=alt.Scale(zero=True)),
+                                color=alt.Color("Categoria:N", legend=None,
+                                                scale=alt.Scale(domain=["Automated (Regression)", "Manual (Regression)"],
+                                                                range=["#10B981", "#6B7280"])),
                                 tooltip=[alt.Tooltip("Categoria:N"), alt.Tooltip("Qtd:Q", title="Quantidade", format=",d")],
                             )
                             .properties(height=340)
@@ -883,7 +823,6 @@ def pagina_dashboard_coverage_and_run():
                             )
                         )
                         st.altair_chart((bars + labels), use_container_width=True)
-
                         total_reg = int(len(base))
                         pct = (auto_reg / total_reg * 100.0) if total_reg else 0.0
                         st.caption(f"**% Automated em Regression**: {pct:.2f}%  (Automated {auto_reg} de {total_reg})")
