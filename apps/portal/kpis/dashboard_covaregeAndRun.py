@@ -770,6 +770,17 @@ def pagina_dashboard_coverage_and_run():
         if f_ze.empty:
             st.info("Sem execuções no período selecionado.")
         else:
+            # Legenda embaixo (horizontal), com 2 colunas
+            legend_opts = alt.Legend(
+                orient="bottom",
+                direction="horizontal",
+                columns=2,
+                title=None,
+                labelFontSize=12,
+                symbolSize=140,
+                padding=10,
+            )
+
             z = f_ze.copy()
             z["is_auto"] = z.get("automated", pd.Series(dtype="object")).astype(str).str.lower().isin(["1","true","yes","automated","sim"])
             df_month = z.groupby(["month","is_auto"]).size().reset_index(name="runs")
@@ -782,8 +793,8 @@ def pagina_dashboard_coverage_and_run():
             ch = alt.Chart(df_month).mark_line(point=True).encode(
                 x=alt.X("month:N", title="Mês"),
                 y=alt.Y("runs:Q", title="Runs"),
-                color=alt.Color("tipo:N", title=None)
-            ).properties(height=300)
+                color=alt.Color("tipo:N", legend=legend_opts)
+            ).properties(height=300, padding={"bottom": 40})
             st.altair_chart(ch, use_container_width=True)
 
     with cR:
