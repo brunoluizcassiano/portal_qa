@@ -83,15 +83,13 @@ def _gauge_percent_plotly(total: int, automated: int, not_applicable: int, title
     cap_pct = ((total - not_applicable) / total * 100.0) if total else 0.0
     cap_pct = float(np.clip(cap_pct, 0.0, 100.0))
 
-    # Domínio do gauge (com leve margem para anotações)
     dom_x = [0.08, 0.92]
     dom_y = [0.15, 0.92]
 
-    # Cores
-    c_val   = "#22c55e"                  # verde da barra
-    c_able  = "rgba(34,211,238,0.15)"    # possível automatizar
-    c_na    = "rgba(156,163,175,0.85)"   # not applicable
-    c_teto  = "#F59E0B"                  # linha de teto
+    c_val  = "#21BA45"
+    c_able = "rgba(15,122,110,0.18)"
+    c_na   = "rgba(156,163,175,0.85)"
+    c_teto = "#F59E0B"
 
     fig = go.Figure(go.Indicator(
         mode="gauge+number",
@@ -100,55 +98,46 @@ def _gauge_percent_plotly(total: int, automated: int, not_applicable: int, title
         title={"text": title, "font": {"size": 14}},
         gauge={
             "shape": "angular",
-            "axis": {
-                "range": [0, 100],
-                "tickmode": "array",
-                "tickvals": [0, 20, 40, 60, 80, 100],
-                "tickfont": {"size": 10}
-            },
+            "axis": {"range": [0, 100], "tickmode": "array",
+                     "tickvals": [0, 20, 40, 60, 80, 100], "tickfont": {"size": 10}},
             "bar": {"color": c_val},
             "steps": [
                 {"range": [0, cap_pct],   "color": c_able},
                 {"range": [cap_pct, 100], "color": c_na},
             ],
-            "threshold": {
-                "line": {"color": c_teto, "width": 6},
-                "thickness": 1.0,
-                "value": cap_pct
-            },
+            "threshold": {"line": {"color": c_teto, "width": 6}, "thickness": 1.0, "value": cap_pct},
             "bgcolor": "rgba(0,0,0,0)",
         },
         domain={"x": dom_x, "y": dom_y}
     ))
 
-    # ---- Calcula ponto exato do teto no arco
-    ang = np.deg2rad(180.0 - (cap_pct * 180.0 / 100.0))  # em radianos
-    cx  = (dom_x[0] + dom_x[1]) / 2.0
-    cy  = dom_y[0]
-    r   = (dom_y[1] - dom_y[0]) * 0.9
-    px  = cx + r * np.cos(ang)
-    py  = cy + r * np.sin(ang)
-    px  = max(0.01, min(0.99, px))
-    py  = max(0.01, min(0.99, py))
+    # Geometria do ponto do teto em coords "paper"
+    ang = np.deg2rad(180.0 - (cap_pct * 180.0 / 100.0))
+    cx = (dom_x[0] + dom_x[1]) / 2.0
+    cy = dom_y[0]
+    r  = (dom_y[1] - dom_y[0]) * 0.50
+    px = max(0.01, min(0.99, cx + r * np.cos(ang)))
+    py = max(0.01, min(0.99, cy + r * np.sin(ang)))
 
-    # Texto do balão
+    # OFFSETS EM PIXELS para posicionar a caixa (seta vai até x=px,y=py)
+    # ajuste fino: ax (+ direita / - esquerda), ay (- para cima / + para baixo)
+    ax_px = 20
+    ay_px = -80
+
     label_html = (
         f"<b>Máx. {cap_pct:.1f}%</b><br>"
         f"<span style='font-size:12px; color:#e5e7eb'>{not_applicable:,} Not applicable</span>"
     )
 
-    # Aponta seta para (px, py), texto fica acima
     fig.add_annotation(
         x=px, y=py, xref="paper", yref="paper",
-        text=label_html,
-        showarrow=True, arrowhead=2, arrowwidth=2, arrowcolor=c_teto,
-        ax=0, ay=-60,
+        ax=ax_px, ay=ay_px,  # offsets em PIXELS (axref/ayref = 'pixel' por padrão)
+        text=label_html, showarrow=True, arrowhead=2, arrowwidth=2, arrowcolor=c_teto,
         xanchor="center", yanchor="bottom", align="center",
-        bgcolor="rgba(0,0,0,0.7)", bordercolor=c_teto, borderwidth=1, borderpad=6
+        bgcolor="rgba(0,0,0,0.65)", bordercolor=c_teto, borderwidth=1, borderpad=6
     )
 
-    # Ajuste de margem superior para evitar corte
-    fig.update_layout(height=300, margin=dict(l=16, r=32, t=80, b=0))
+    fig.update_layout(height=300, margin=dict(l=16, r=40, t=54, b=0))
     return fig
 
 def _extract_issue_ids_from_testcases(df_zc: pd.DataFrame) -> pd.DataFrame:
