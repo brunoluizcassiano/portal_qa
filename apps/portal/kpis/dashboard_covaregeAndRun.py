@@ -78,19 +78,15 @@ def _is_closed(status: str) -> bool:
 def _gauge_percent_plotly(total: int, automated: int, not_applicable: int, title: str = "% Automated Test"):
     import plotly.graph_objects as go
     import numpy as np
-
     pct_now = (automated / total * 100.0) if total else 0.0
     cap_pct = ((total - not_applicable) / total * 100.0) if total else 0.0
     cap_pct = float(np.clip(cap_pct, 0.0, 100.0))
-
     dom_x = [0.08, 0.92]
     dom_y = [0.15, 0.92]
-
     c_val  = "#21BA45"
     c_able = "rgba(15,122,110,0.18)"
     c_na   = "rgba(156,163,175,0.85)"
     c_teto = "#F59E0B"
-
     fig = go.Figure(go.Indicator(
         mode="gauge+number",
         value=float(np.clip(pct_now, 0.0, 100.0)),
@@ -110,51 +106,43 @@ def _gauge_percent_plotly(total: int, automated: int, not_applicable: int, title
         },
         domain={"x": dom_x, "y": dom_y}
     ))
-
     # Geometria do ponto do teto em coords "paper"
-    ang = np.deg2rad(180.0 - (cap_pct * 180.0 / 100.0))
+    ang = np.deg2rad(170.0 - (cap_pct * 170.0 / 100.0))
     cx = (dom_x[0] + dom_x[1]) / 2.0
     cy = dom_y[0]
-    r  = (dom_y[1] - dom_y[0]) * 0.50
+    r  = (dom_y[1] - dom_y[0]) * 0.70
     px = max(0.01, min(0.99, cx + r * np.cos(ang)))
     py = max(0.01, min(0.99, cy + r * np.sin(ang)))
-
     # OFFSETS EM PIXELS para posicionar a caixa (seta vai até x=px,y=py)
     # ajuste fino: ax (+ direita / - esquerda), ay (- para cima / + para baixo)
-
     label_html = (
         f"<b>Máx. {cap_pct:.1f}%</b><br>"
         f"<span style='font-size:12px; color:#e5e7eb'>{not_applicable:,} Not applicable</span>"
     )
-
     # --- deslocar APENAS a seta um pouco para a esquerda ---
     # quanto mover a ponta da seta em coordenada "paper" (fração da largura do gráfico)
-    delta_tip_paper = -0.010   # -0.010 ≈ 1% da largura; negativo = para a esquerda
-
+    delta_tip_paper = -0.020   # -0.010 ≈ 1% da largura; negativo = para a esquerda
     # definimos uma largura fixa para converter paper->pixels (ajuste fino se quiser)
     chart_width_px = 900
     paper_span_x   = (dom_x[1] - dom_x[0])          # fração da largura reservada ao gauge
     px_per_paper   = chart_width_px * paper_span_x  # conversor aproximado
     comp_px        = int(delta_tip_paper * px_per_paper)
-
     # nova posição do head (x,y) da seta
     x_head = px + delta_tip_paper
     y_head = py
-
     # offsets do balão (mantêm o balão onde já estava)
-    ax_px = 20 - comp_px   # <— compensação contrária para o balão ficar no mesmo lugar
-    ay_px = -80
-
+    ax_px = -40 - comp_px   # <— compensação contrária para o balão ficar no mesmo lugar
+    ay_px = -60
     fig.add_annotation(
         x=x_head, y=y_head, xref="paper", yref="paper",
         ax=ax_px, ay=ay_px, axref="pixel", ayref="pixel",   # offsets em PIXELS (só do balão)
-        text=label_html, showarrow=True, arrowhead=2, arrowwidth=2, arrowcolor=c_teto,
+        text=label_html, showarrow=False, arrowhead=2, arrowwidth=2, arrowcolor=c_teto,
         xanchor="center", yanchor="bottom", align="center",
         bgcolor="rgba(0,0,0,0.65)", bordercolor=c_teto, borderwidth=1, borderpad=6
     )
-
     fig.update_layout(height=300, margin=dict(l=16, r=40, t=54, b=0))
     return fig
+
 
 def _extract_issue_ids_from_testcases(df_zc: pd.DataFrame) -> pd.DataFrame:
     if df_zc.empty:
@@ -657,7 +645,7 @@ def pagina_dashboard_coverage_and_run():
 
             st.plotly_chart(_gauge_percent_plotly(n_total, n_auto, n_not_app, "% Automated Test"),
                                 use_container_width=True)
-            st.caption("O setor cinza indica a parte inatingível do 100% devido aos testes marcados como Not applicable.")
+            st.caption("The gray area indicates the unattainable portion of 100% due to tests marked as Not applicable.")
 
             c1, c2, c3 = st.columns(3)
             c1.metric("Automated", n_auto)
