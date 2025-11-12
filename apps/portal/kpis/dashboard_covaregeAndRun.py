@@ -121,17 +121,33 @@ def _gauge_percent_plotly(total: int, automated: int, not_applicable: int, title
 
     # OFFSETS EM PIXELS para posicionar a caixa (seta vai até x=px,y=py)
     # ajuste fino: ax (+ direita / - esquerda), ay (- para cima / + para baixo)
-    ax_px = 20
-    ay_px = -80
 
     label_html = (
         f"<b>Máx. {cap_pct:.1f}%</b><br>"
         f"<span style='font-size:12px; color:#e5e7eb'>{not_applicable:,} Not applicable</span>"
     )
 
+    # --- deslocar APENAS a seta um pouco para a esquerda ---
+    # quanto mover a ponta da seta em coordenada "paper" (fração da largura do gráfico)
+    delta_tip_paper = -0.010   # -0.010 ≈ 1% da largura; negativo = para a esquerda
+
+    # definimos uma largura fixa para converter paper->pixels (ajuste fino se quiser)
+    chart_width_px = 900
+    paper_span_x   = (dom_x[1] - dom_x[0])          # fração da largura reservada ao gauge
+    px_per_paper   = chart_width_px * paper_span_x  # conversor aproximado
+    comp_px        = int(delta_tip_paper * px_per_paper)
+
+    # nova posição do head (x,y) da seta
+    x_head = px + delta_tip_paper
+    y_head = py
+
+    # offsets do balão (mantêm o balão onde já estava)
+    ax_px = 20 - comp_px   # <— compensação contrária para o balão ficar no mesmo lugar
+    ay_px = -80
+
     fig.add_annotation(
-        x=px, y=py, xref="paper", yref="paper",
-        ax=ax_px, ay=ay_px,  # offsets em PIXELS (axref/ayref = 'pixel' por padrão)
+        x=x_head, y=y_head, xref="paper", yref="paper",
+        ax=ax_px, ay=ay_px, axref="pixel", ayref="pixel",   # offsets em PIXELS (só do balão)
         text=label_html, showarrow=True, arrowhead=2, arrowwidth=2, arrowcolor=c_teto,
         xanchor="center", yanchor="bottom", align="center",
         bgcolor="rgba(0,0,0,0.65)", bordercolor=c_teto, borderwidth=1, borderpad=6
