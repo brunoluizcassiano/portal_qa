@@ -83,13 +83,15 @@ def _gauge_percent_plotly(total: int, automated: int, not_applicable: int, title
     cap_pct = ((total - not_applicable) / total * 100.0) if total else 0.0
     cap_pct = float(np.clip(cap_pct, 0.0, 100.0))
 
+    # Domínio do gauge (com leve margem para anotações)
     dom_x = [0.08, 0.92]
     dom_y = [0.15, 0.92]
 
-    c_val   = "#22c55e"
-    c_able  = "rgba(34,211,238,0.15)"
-    c_na    = "rgba(156,163,175,0.85)"
-    c_teto  = "#F59E0B"
+    # Cores
+    c_val   = "#22c55e"                  # verde da barra
+    c_able  = "rgba(34,211,238,0.15)"    # possível automatizar
+    c_na    = "rgba(156,163,175,0.85)"   # not applicable
+    c_teto  = "#F59E0B"                  # linha de teto
 
     fig = go.Figure(go.Indicator(
         mode="gauge+number",
@@ -119,7 +121,34 @@ def _gauge_percent_plotly(total: int, automated: int, not_applicable: int, title
         domain={"x": dom_x, "y": dom_y}
     ))
 
-    fig.update_layout(height=300, margin=dict(l=16, r=16, t=48, b=0))
+    # ---- Calcula ponto exato do teto no arco
+    ang = np.deg2rad(180.0 - (cap_pct * 180.0 / 100.0))  # em radianos
+    cx  = (dom_x[0] + dom_x[1]) / 2.0
+    cy  = dom_y[0]
+    r   = (dom_y[1] - dom_y[0]) * 0.9
+    px  = cx + r * np.cos(ang)
+    py  = cy + r * np.sin(ang)
+    px  = max(0.01, min(0.99, px))
+    py  = max(0.01, min(0.99, py))
+
+    # Texto do balão
+    label_html = (
+        f"<b>Máx. {cap_pct:.1f}%</b><br>"
+        f"<span style='font-size:12px; color:#e5e7eb'>{not_applicable:,} Not applicable</span>"
+    )
+
+    # Aponta seta para (px, py), texto fica acima
+    fig.add_annotation(
+        x=px, y=py, xref="paper", yref="paper",
+        text=label_html,
+        showarrow=True, arrowhead=2, arrowwidth=2, arrowcolor=c_teto,
+        ax=0, ay=-60,
+        xanchor="center", yanchor="bottom", align="center",
+        bgcolor="rgba(0,0,0,0.7)", bordercolor=c_teto, borderwidth=1, borderpad=6
+    )
+
+    # Ajuste de margem superior para evitar corte
+    fig.update_layout(height=300, margin=dict(l=16, r=32, t=80, b=0))
     return fig
 
 def _extract_issue_ids_from_testcases(df_zc: pd.DataFrame) -> pd.DataFrame:
