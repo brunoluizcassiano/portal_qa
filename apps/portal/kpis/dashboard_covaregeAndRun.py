@@ -526,7 +526,7 @@ def pagina_dashboard_coverage_and_run():
             epic_closed = 0
         st.metric(
             "QTD Story Closed / QTD Epic Closed",
-            f"{story_closed:,} / {epic_closed:,}"
+            f"{story_closed:,} / {epic_closed:,}".replace(",", ".")
         )
 
     # 3) Slot para % Story Coverage (preenchido depois)
