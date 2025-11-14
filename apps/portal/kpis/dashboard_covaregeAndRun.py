@@ -746,16 +746,27 @@ def pagina_dashboard_coverage_and_run():
     else:
         epic_closed = 0
 
+    # --- Test average per issue (Stories + Epics + Func) ---
+    n_story = int(f_story.shape[0])
+    n_epic = int(f_epic.shape[0])
+    n_func = int(f_func.shape[0]) if not f_func.empty else 0
+
+    n_issues_for_avg = n_story + n_epic + n_func
+    if n_issues_for_avg > 0:
+        test_avg = total_tests / n_issues_for_avg
+    else:
+        test_avg = 0.0
+
     # ============================================================
     #                 LINHAS DE CARDS (5 x 4)
     # ============================================================
 
-    # 1ª linha: Tribo, Total Coverage, BDD Script (0), Test Cycle
+    # 1ª linha: Tribo, Test average per issue, BDD Script (0), Test Cycle
     row1 = st.columns(4)
     with row1[0]:
         st.metric("Tribo", int(domains) if pd.notna(domains) else 0)
     with row1[1]:
-        st.metric("% Total Coverage", f"{pct_total_cov:.2f}%")
+        st.metric("Test average per issue", f"{test_avg:0.2f}")
     with row1[2]:
         st.metric("BDD Script (N/A)", 0)
     with row1[3]:
@@ -808,7 +819,7 @@ def pagina_dashboard_coverage_and_run():
     st.markdown("---")
 
     # ============================================================
-    #                    GRÁFICOS (iguais antes)
+    #                    GRÁFICOS
     # ============================================================
     cA, cB = st.columns(2)
 
