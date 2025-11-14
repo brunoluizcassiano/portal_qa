@@ -486,7 +486,7 @@ def pagina_dashboard_coverage_and_run():
     f_cyc   = _f_proj(_f_period_cycle(df_cycle),   sel_project)
 
     # ---------------- Cards topo ----------------
-    col1 = st.columns(5)
+    col1 = st.columns(4)
 
     # 1) Tribos
     with col1[0]:
@@ -533,36 +533,6 @@ def pagina_dashboard_coverage_and_run():
     cov_slot = col1[3].empty()
     cov_slot.metric("% Story Coverage", "—")
 
-    # ---------------- Cálculos especiais ----------------
-    links_by_id = _extract_issue_ids_from_testcases(f_zc) if not f_zc.empty else pd.DataFrame(columns=["tc_key","issue_id"])
-    story_ids = pd.to_numeric(f_story.get("id", pd.Series(dtype="object")), errors="coerce").dropna().astype("Int64")
-    if not links_by_id.empty and not story_ids.empty:
-        covered_story_ids = set(links_by_id["issue_id"].dropna().astype("Int64")) & set(story_ids.tolist())
-        pct_story_cov = _pct(len(covered_story_ids), int(f_story.shape[0]))
-    else:
-        pct_story_cov = 0.0
-    cov_slot.metric("% Story Coverage", f"{pct_story_cov:.2f}%")
-
-    issue_id_sets = []
-    for df_ in (f_story, f_epic, f_func):
-        if not df_.empty and "id" in df_.columns:
-            ids = pd.to_numeric(df_["id"], errors="coerce").dropna().astype("Int64")
-            if not ids.empty:
-                issue_id_sets.append(set(ids.tolist()))
-    relevant_issue_ids = set().union(*issue_id_sets) if issue_id_sets else set()
-
-    if not links_by_id.empty and relevant_issue_ids:
-        df_link_rel = links_by_id[links_by_id["issue_id"].isin(list(relevant_issue_ids))]
-        if not df_link_rel.empty:
-            by_issue = df_link_rel.groupby("issue_id")["tc_key"].nunique()
-            avg_tests_per_issue = float(by_issue.mean()) if not by_issue.empty else 0.0
-        else:
-            avg_tests_per_issue = 0.0
-    else:
-        avg_tests_per_issue = 0.0
-
-    with col1[4]:
-        st.metric("# Test average per issue", f"{avg_tests_per_issue:.2f}")
 
     # ---------------- TEST CASES ----------------
     automated_tests = total_tests = manual_tests = 0
@@ -584,7 +554,7 @@ def pagina_dashboard_coverage_and_run():
             total_tests     = int(auto_by_case.shape[0])
 
     # ---------- 🔹 Card combinado Manual / Automated / Total + Test Cycle ----------
-    col2 = st.columns(5)
+    col2 = st.columns(4)
     with col2[0]:
         st.metric(
             "# Manual / Automated / Total Test",
@@ -614,7 +584,40 @@ def pagina_dashboard_coverage_and_run():
     with col2[2]: st.metric("% Automated Test", f"{_pct(automated_tests, total_tests):.2f}%")
     with col2[3]: st.metric("% Automated Run",  f"{_pct(aut_runs if 'aut_runs' in locals() else 0, total_runs if 'total_runs' in locals() else 0):.2f}%")
 
-    with col2[4]:
+    col3 = st.columns(4)
+    
+    # ---------------- Cálculos especiais ----------------
+    links_by_id = _extract_issue_ids_from_testcases(f_zc) if not f_zc.empty else pd.DataFrame(columns=["tc_key","issue_id"])
+    story_ids = pd.to_numeric(f_story.get("id", pd.Series(dtype="object")), errors="coerce").dropna().astype("Int64")
+    if not links_by_id.empty and not story_ids.empty:
+        covered_story_ids = set(links_by_id["issue_id"].dropna().astype("Int64")) & set(story_ids.tolist())
+        pct_story_cov = _pct(len(covered_story_ids), int(f_story.shape[0]))
+    else:
+        pct_story_cov = 0.0
+    cov_slot.metric("% Story Coverage", f"{pct_story_cov:.2f}%")
+
+    issue_id_sets = []
+    for df_ in (f_story, f_epic, f_func):
+        if not df_.empty and "id" in df_.columns:
+            ids = pd.to_numeric(df_["id"], errors="coerce").dropna().astype("Int64")
+            if not ids.empty:
+                issue_id_sets.append(set(ids.tolist()))
+    relevant_issue_ids = set().union(*issue_id_sets) if issue_id_sets else set()
+
+    if not links_by_id.empty and relevant_issue_ids:
+        df_link_rel = links_by_id[links_by_id["issue_id"].isin(list(relevant_issue_ids))]
+        if not df_link_rel.empty:
+            by_issue = df_link_rel.groupby("issue_id")["tc_key"].nunique()
+            avg_tests_per_issue = float(by_issue.mean()) if not by_issue.empty else 0.0
+        else:
+            avg_tests_per_issue = 0.0
+    else:
+        avg_tests_per_issue = 0.0
+
+    with col3[0]:
+        st.metric("# Test average per issue", f"{avg_tests_per_issue:.2f}")
+
+    with col3[1]:
         if not f_cyc.empty:
             cyc_key = _first_col(f_cyc, ["key","cycleKey","name","cycleId","id"])
             cycles = f_cyc[cyc_key].dropna().astype(str).nunique() if cyc_key else int(len(f_cyc))
@@ -624,6 +627,12 @@ def pagina_dashboard_coverage_and_run():
         else:
             cycles = 0
         st.metric("# Test Cycle", int(cycles))
+
+    with col3[2]:
+        st.metric("# BDD Null Scripts", 0)
+
+    with col3[3]:
+        st.metric("# Test E2E", 0)
 
     st.markdown("---")
 
