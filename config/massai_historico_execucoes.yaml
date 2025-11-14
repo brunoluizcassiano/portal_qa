@@ -145,3 +145,19 @@
     sem passos."]}'
   endpoint: /run_fluxo/
   api_url: http://127.0.0.1:8000
+- fluxo_name: Fluxo Cartão
+  horario: '14:00'
+  data: 14/11/2025
+  status: Sucesso
+  mensagem: '{"status":"Falha","erros":["Fluxo ''Fluxo Cartão'' não encontrado ou
+    sem passos."]}'
+  endpoint: /run_fluxo/
+  api_url: http://127.0.0.1:8000
+- fluxo_name: Fluxo Cartão
+  horario: '14:02'
+  data: 14/11/2025
+  status: Sucesso
+  mensagem: '{"status":"Falha","erros":["Fluxo ''Fluxo Cartão'' não encontrado ou
+    sem passos."]}'
+  endpoint: /run_fluxo/
+  api_url: http://127.0.0.1:8000
