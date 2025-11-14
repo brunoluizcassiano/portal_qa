@@ -9,7 +9,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from pandas.api.types import is_datetime64_any_dtype, is_datetime64tz_dtype
 
-from .constants import (
+from .analytics.constants import (
     KPI_LASTUPDATE,
     JIRA_EPIC,
     JIRA_STORY,
@@ -23,24 +23,24 @@ from .constants import (
 
 # FUNC é opcional, dependendo se existe no seu constants.py
 try:
-    from .constants import JIRA_FUNC
+    from .analytics.constants import JIRA_FUNC
 except Exception:
     JIRA_FUNC = None
 
 # CYCLES também podem ser opcionais
 try:
-    from .constants import ZEPHYR_CYCLE_MAIN, ZEPHYR_CYCLE_FALLBACK
+    from .analytics.constants import ZEPHYR_CYCLE_MAIN, ZEPHYR_CYCLE_FALLBACK
 except Exception:
     ZEPHYR_CYCLE_MAIN = None
     ZEPHYR_CYCLE_FALLBACK = None
 
-from .data_access import safe_read_csv, read_last_update
-from .transformers import normalize_issue_df, normalize_bugs
+from .analytics.data_access import safe_read_csv, read_last_update
+from .analytics.transformers import normalize_issue_df, normalize_bugs
 
 # se não existir ensure_project_on_executions em transformers,
 # deixamos um fallback que não altera o DF
 try:
-    from .transformers import ensure_project_on_executions
+    from .analytics.transformers import ensure_project_on_executions
 except Exception:
     def ensure_project_on_executions(df: pd.DataFrame) -> pd.DataFrame:
         return df
