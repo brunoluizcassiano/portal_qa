@@ -113,21 +113,33 @@ def _gauge_percent_plotly(total: int, automated: int, not_applicable: int, title
     r  = (dom_y[1] - dom_y[0]) * 0.70
     px = max(0.01, min(0.99, cx + r * np.cos(ang)))
     py = max(0.01, min(0.99, cy + r * np.sin(ang)))
-
+    # OFFSETS EM PIXELS para posicionar a caixa (seta vai até x=px,y=py)
+    # ajuste fino: ax (+ direita / - esquerda), ay (- para cima / + para baixo)
     label_html = (
         f"<b>Máx. {cap_pct:.1f}%</b><br>"
         f"<span style='font-size:12px; color:#e5e7eb'>{not_applicable:,} Not applicable</span>"
     )
-
-    # Balão ancorado no ponto (sem seta)
+    # --- deslocar APENAS a seta um pouco para a esquerda ---
+    # quanto mover a ponta da seta em coordenada "paper" (fração da largura do gráfico)
+    delta_tip_paper = -0.020   # -0.010 ≈ 1% da largura; negativo = para a esquerda
+    # definimos uma largura fixa para converter paper->pixels (ajuste fino se quiser)
+    chart_width_px = 900
+    paper_span_x   = (dom_x[1] - dom_x[0])          # fração da largura reservada ao gauge
+    px_per_paper   = chart_width_px * paper_span_x  # conversor aproximado
+    comp_px        = int(delta_tip_paper * px_per_paper)
+    # nova posição do head (x,y) da seta
+    x_head = px + delta_tip_paper
+    y_head = py
+    # offsets do balão (mantêm o balão onde já estava)
+    ax_px = -40 - comp_px   # <— compensação contrária para o balão ficar no mesmo lugar
+    ay_px = -60
     fig.add_annotation(
-        x=px, y=py, xref="paper", yref="paper",
-        text=label_html,
-        showarrow=False,
+        x=x_head, y=y_head, xref="paper", yref="paper",
+        ax=ax_px, ay=ay_px, axref="pixel", ayref="pixel",   # offsets em PIXELS (só do balão)
+        text=label_html, showarrow=False, arrowhead=2, arrowwidth=2, arrowcolor=c_teto,
         xanchor="center", yanchor="bottom", align="center",
         bgcolor="rgba(0,0,0,0.65)", bordercolor=c_teto, borderwidth=1, borderpad=6
     )
-
     fig.update_layout(height=300, margin=dict(l=16, r=40, t=54, b=0))
     return fig
 
@@ -286,7 +298,7 @@ def pagina_dashboard_coverage_and_run():
                 cand = _first_col(df_ze, ["testCycle.key", "testCycleKey", "cycleKey"])
                 if cand:
                     proj_series = _project_from_key(df_ze[cand])
-            if proj_series is None or proj_series.fillna("").eq("").all() and "key" in df_ze.columns:
+            if (proj_series is None or proj_series.fillna("").eq("").all()) and "key" in df_ze.columns:
                 proj_series = _project_from_key(df_ze["key"])
             if proj_series is None or proj_series.fillna("").eq("").all():
                 cand = _first_col(df_ze, ["issueKey", "testKey", "Test Case Key"])
@@ -487,8 +499,6 @@ def pagina_dashboard_coverage_and_run():
 
     # ---------------- Cards topo ----------------
     col1 = st.columns(4)
-
-    # 1) Tribos
     with col1[0]:
         if not df_proj.empty and {"name","key"}.issubset(df_proj.columns):
             domains = len(df_proj if sel_project == "Todos" else df_proj[df_proj["key"].astype(str).str.upper().eq(str(sel_project).upper())])
@@ -502,37 +512,10 @@ def pagina_dashboard_coverage_and_run():
             )
             domains = base.dropna().astype(str).str.upper().nunique()
         st.metric("Tribo", int(domains) if pd.notna(domains) else 0)
-
-    # 2) Card combinado Story/Epic
-    with col1[1]:
-        qtd_story = int(f_story.shape[0])
-        qtd_epic  = int(f_epic.shape[0])
-        st.metric("QTD Story / QTD Epic", f"{qtd_story:,} / {qtd_epic:,}".replace(",", "."))
-
-    story_status_map = dict(zip(df_story_raw.get("key", pd.Series(dtype="object")).astype(str), _status_series(df_story_raw))) if not df_story_raw.empty and "key" in df_story_raw.columns else {}
-    epic_status_map  = dict(zip(df_epic_raw.get("key",  pd.Series(dtype="object")).astype(str), _status_series(df_epic_raw)))  if not df_epic_raw.empty and "key" in df_epic_raw.columns  else {}
-
-    with col1[2]:
-        if not f_story.empty and story_status_map:
-            keys = f_story.get("key", pd.Series(dtype="object")).dropna().astype(str)
-            story_closed = sum(1 for k in keys if _is_closed(story_status_map.get(k, "")))
-        else:
-            story_closed = 0
-        # st.metric("# QTD Story Closed", int(story_closed))
-        if not f_epic.empty and epic_status_map:
-            keys = f_epic.get("key", pd.Series(dtype="object")).dropna().astype(str)
-            epic_closed = sum(1 for k in keys if _is_closed(epic_status_map.get(k, "")))
-        else:
-            epic_closed = 0
-        st.metric(
-            "QTD Story Closed / QTD Epic Closed",
-            f"{story_closed:,} / {epic_closed:,}".replace(",", ".")
-        )
-
-    # 3) Slot para % Story Coverage (preenchido depois)
+    with col1[1]: st.metric("QTD Story", int(f_story.shape[0]))
+    with col1[2]: st.metric("QTD Epic",  int(f_epic.shape[0]))
     cov_slot = col1[3].empty()
     cov_slot.metric("% Story Coverage", "—")
-
 
     # ---------------- TEST CASES ----------------
     automated_tests = total_tests = manual_tests = 0
@@ -553,39 +536,32 @@ def pagina_dashboard_coverage_and_run():
             manual_tests    = int((~auto_by_case).sum())
             total_tests     = int(auto_by_case.shape[0])
 
-    # ---------- 🔹 Card combinado Manual / Automated / Total + Test Cycle ----------
     col2 = st.columns(4)
-    with col2[0]:
-        st.metric(
-            "# Manual / Automated / Total Test",
-            f"{manual_tests:,} / {automated_tests:,} / {total_tests:,}".replace(",", "."),
-        )
-
-    # calcula runs uma vez só
-    if not f_ze.empty:
-        auto_series = _is_automated_bool_series(
-            f_ze.get("automated", pd.Series(dtype="object"))
-        )
-        man_runs = int((~auto_series).sum())
-        aut_runs = int(auto_series.sum())
-    else:
-        man_runs = 0
-        aut_runs = 0
-
-    total_runs = man_runs + aut_runs
-
-    # card combinado
-    with col2[1]:
-        st.metric(
-            "# Manual Run / Automated Run / Total Run",
-            f"{man_runs:,} / {aut_runs:,} / {total_runs:,}".replace(",", "."),
-        )
-
-    with col2[2]: st.metric("% Automated Test", f"{_pct(automated_tests, total_tests):.2f}%")
-    with col2[3]: st.metric("% Automated Run",  f"{_pct(aut_runs if 'aut_runs' in locals() else 0, total_runs if 'total_runs' in locals() else 0):.2f}%")
+    with col2[0]: st.metric("# Manual Test",    int(manual_tests))
+    with col2[1]: st.metric("# Automated Test", int(automated_tests))
+    with col2[2]: st.metric("# Total Test",     int(total_tests))
+    with col2[3]:
+        if not f_cyc.empty:
+            cyc_key = _first_col(f_cyc, ["key","cycleKey","name","cycleId","id"])
+            cycles = f_cyc[cyc_key].dropna().astype(str).nunique() if cyc_key else int(len(f_cyc))
+        elif not f_ze.empty:
+            cycle_col = _first_col(f_ze, ["testCycle.key","testCycle.id","cycleKey","cycleId"])
+            cycles = f_ze[cycle_col].dropna().astype(str).nunique() if cycle_col else 0
+        else:
+            cycles = 0
+        st.metric("# Test Cycle", int(cycles))
 
     col3 = st.columns(4)
-    
+    with col3[0]:
+        man_runs = int((~_is_automated_bool_series(f_ze.get("automated", pd.Series(dtype="object")))).sum()) if not f_ze.empty else 0
+        st.metric("# Manual Run", man_runs)
+    with col3[1]:
+        aut_runs = int((_is_automated_bool_series(f_ze.get("automated", pd.Series(dtype="object")))).sum()) if not f_ze.empty else 0
+        st.metric("# Automated Run", aut_runs)
+    with col3[2]:
+        total_runs = int(man_runs + aut_runs)
+        st.metric("# Total Run", total_runs)
+
     # ---------------- Cálculos especiais ----------------
     links_by_id = _extract_issue_ids_from_testcases(f_zc) if not f_zc.empty else pd.DataFrame(columns=["tc_key","issue_id"])
     story_ids = pd.to_numeric(f_story.get("id", pd.Series(dtype="object")), errors="coerce").dropna().astype("Int64")
@@ -614,25 +590,29 @@ def pagina_dashboard_coverage_and_run():
     else:
         avg_tests_per_issue = 0.0
 
-    with col3[0]:
+    with col3[3]:
         st.metric("# Test average per issue", f"{avg_tests_per_issue:.2f}")
 
-    with col3[1]:
-        if not f_cyc.empty:
-            cyc_key = _first_col(f_cyc, ["key","cycleKey","name","cycleId","id"])
-            cycles = f_cyc[cyc_key].dropna().astype(str).nunique() if cyc_key else int(len(f_cyc))
-        elif not f_ze.empty:
-            cycle_col = _first_col(f_ze, ["testCycle.key","testCycle.id","cycleKey","cycleId"])
-            cycles = f_ze[cycle_col].dropna().astype(str).nunique() if cycle_col else 0
+    story_status_map = dict(zip(df_story_raw.get("key", pd.Series(dtype="object")).astype(str), _status_series(df_story_raw))) if not df_story_raw.empty and "key" in df_story_raw.columns else {}
+    epic_status_map  = dict(zip(df_epic_raw.get("key",  pd.Series(dtype="object")).astype(str), _status_series(df_epic_raw)))  if not df_epic_raw.empty and "key" in df_epic_raw.columns  else {}
+
+    col4 = st.columns(4)
+    with col4[0]:
+        if not f_story.empty and story_status_map:
+            keys = f_story.get("key", pd.Series(dtype="object")).dropna().astype(str)
+            story_closed = sum(1 for k in keys if _is_closed(story_status_map.get(k, "")))
         else:
-            cycles = 0
-        st.metric("# Test Cycle", int(cycles))
-
-    with col3[2]:
-        st.metric("# BDD Null Scripts", 0)
-
-    with col3[3]:
-        st.metric("# Test E2E", 0)
+            story_closed = 0
+        st.metric("# QTD Story Closed", int(story_closed))
+    with col4[1]:
+        if not f_epic.empty and epic_status_map:
+            keys = f_epic.get("key", pd.Series(dtype="object")).dropna().astype(str)
+            epic_closed = sum(1 for k in keys if _is_closed(epic_status_map.get(k, "")))
+        else:
+            epic_closed = 0
+        st.metric("# QTD Epic Closed", int(epic_closed))
+    with col4[2]: st.metric("% Automated Test", f"{_pct(automated_tests, total_tests):.2f}%")
+    with col4[3]: st.metric("% Automated Run",  f"{_pct(aut_runs if 'aut_runs' in locals() else 0, total_runs if 'total_runs' in locals() else 0):.2f}%")
 
     st.markdown("---")
 
@@ -812,6 +792,7 @@ def pagina_dashboard_coverage_and_run():
         if f_ze.empty:
             st.info("Sem execuções no período selecionado.")
         else:
+            # Legenda embaixo (horizontal), com 2 colunas
             legend_opts = alt.Legend(
                 orient="bottom",
                 direction="horizontal",
@@ -842,6 +823,7 @@ def pagina_dashboard_coverage_and_run():
         cR1, cR2 = st.columns(2)
 
         with cR1:
+            # >>>>>>>>> ATUALIZADO: Automated run × Manual run (barras altas, rótulos, ordenação) <<<<<<<<
             st.markdown("#### Automated run × Manual run")
             if f_ze.empty or "automated" not in f_ze.columns:
                 st.info("Sem execuções no período.")
@@ -877,6 +859,7 @@ def pagina_dashboard_coverage_and_run():
                 st.altair_chart((bars + labels), use_container_width=True)
 
         with cR2:
+            # >>>>>>>>> ATUALIZADO: Automation in regressive (barras altas, rótulos, ordenação) <<<<<<<<
             st.markdown("#### Automation in regressive")
             if f_zc.empty:
                 st.info("Sem dados de casos de teste (Zephyr Test Cases).")
