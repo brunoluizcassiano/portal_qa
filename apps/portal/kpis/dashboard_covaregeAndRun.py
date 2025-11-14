@@ -562,37 +562,6 @@ def pagina_dashboard_coverage_and_run():
         total_runs = int(man_runs + aut_runs)
         st.metric("# Total Run", total_runs)
 
-    # # ---------------- Cálculos especiais ----------------
-    # links_by_id = _extract_issue_ids_from_testcases(f_zc) if not f_zc.empty else pd.DataFrame(columns=["tc_key","issue_id"])
-    # story_ids = pd.to_numeric(f_story.get("id", pd.Series(dtype="object")), errors="coerce").dropna().astype("Int64")
-    # if not links_by_id.empty and not story_ids.empty:
-    #     covered_story_ids = set(links_by_id["issue_id"].dropna().astype("Int64")) & set(story_ids.tolist())
-    #     pct_story_cov = _pct(len(covered_story_ids), int(f_story.shape[0]))
-    # else:
-    #     pct_story_cov = 0.0
-    # cov_slot.metric("% Story Coverage", f"{pct_story_cov:.2f}%")
-
-    # issue_id_sets = []
-    # for df_ in (f_story, f_epic, f_func):
-    #     if not df_.empty and "id" in df_.columns:
-    #         ids = pd.to_numeric(df_["id"], errors="coerce").dropna().astype("Int64")
-    #         if not ids.empty:
-    #             issue_id_sets.append(set(ids.tolist()))
-    # relevant_issue_ids = set().union(*issue_id_sets) if issue_id_sets else set()
-
-    # if not links_by_id.empty and relevant_issue_ids:
-    #     df_link_rel = links_by_id[links_by_id["issue_id"].isin(list(relevant_issue_ids))]
-    #     if not df_link_rel.empty:
-    #         by_issue = df_link_rel.groupby("issue_id")["tc_key"].nunique()
-    #         avg_tests_per_issue = float(by_issue.mean()) if not by_issue.empty else 0.0
-    #     else:
-    #         avg_tests_per_issue = 0.0
-    # else:
-    #     avg_tests_per_issue = 0.0
-
-    # with col3[3]:
-    #     st.metric("# Test average per issue", f"{avg_tests_per_issue:.2f}")
-
     # ---------------- Cálculos especiais ----------------
     links_by_id = _extract_issue_ids_from_testcases(f_zc) if not f_zc.empty else pd.DataFrame(
         columns=["tc_key", "issue_id"]
@@ -649,12 +618,14 @@ def pagina_dashboard_coverage_and_run():
 
     # Total (Story + Epic + Func)
     all_issue_ids = set(story_ids.tolist()) | set(epic_ids.tolist()) | set(func_ids.tolist())
+
     if all_issue_ids and covered_ids_all:
         covered_total_ids = covered_ids_all & all_issue_ids
-        denom_total = len(all_issue_ids)
+        denom_total = len(all_issue_ids)              # <<< denominador = nº de issues únicos
         pct_total_cov = _pct(len(covered_total_ids), denom_total)
     else:
         pct_total_cov = 0.0
+
 
     # --- Linha nova de cards de coverage (Epic / Func / Total) ---
     cov_row = st.columns(3)
