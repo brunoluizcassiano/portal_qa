@@ -1,53 +1,73 @@
 # -*- coding: utf-8 -*-
 import re
-import streamlit as st
-import pandas as pd
-import numpy as np
-import altair as alt
-import plotly.graph_objects as go
 from datetime import date, timedelta
+
+import altair as alt
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
+import streamlit as st
 from pandas.api.types import is_datetime64_any_dtype, is_datetime64tz_dtype
 
-from .analytics.constants import (
+from .constants import (
     KPI_LASTUPDATE,
-    JIRA_EPIC, JIRA_STORY, JIRA_BUG, JIRA_SUBBUG, JIRA_PROJ,
-    ZEPHYR_TC, ZEPHYR_EXEC_MAIN, ZEPHYR_EXEC_FALLBACK,
+    JIRA_EPIC,
+    JIRA_STORY,
+    JIRA_BUG,
+    JIRA_SUBBUG,
+    JIRA_PROJ,
+    ZEPHYR_TC,
+    ZEPHYR_EXEC_MAIN,
+    ZEPHYR_EXEC_FALLBACK,
 )
 
-# FUNC opcional
+# FUNC é opcional, dependendo se existe no seu constants.py
 try:
-    from .analytics.constants import JIRA_FUNC
+    from .constants import JIRA_FUNC
 except Exception:
     JIRA_FUNC = None
 
-# CYCLES opcionais
+# CYCLES também podem ser opcionais
 try:
-    from .analytics.constants import ZEPHYR_CYCLE_MAIN, ZEPHYR_CYCLE_FALLBACK
+    from .constants import ZEPHYR_CYCLE_MAIN, ZEPHYR_CYCLE_FALLBACK
 except Exception:
     ZEPHYR_CYCLE_MAIN = None
     ZEPHYR_CYCLE_FALLBACK = None
 
-from .analytics.data_access import safe_read_csv, read_last_update
-from .analytics.transformers import normalize_issue_df, normalize_bugs
+from .data_access import safe_read_csv, read_last_update
+from .transformers import normalize_issue_df, normalize_bugs
+
+# se não existir ensure_project_on_executions em transformers,
+# deixamos um fallback que não altera o DF
 try:
-    from .analytics.transformers import ensure_project_on_executions
+    from .transformers import ensure_project_on_executions
 except Exception:
     def ensure_project_on_executions(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
 
 # --------------------------------------------------------------------
-# Helpers
+# Helpers genéricos
 # --------------------------------------------------------------------
-def _pct(a, b):
-    return (float(a) / float(b) * 100.0) if (b not in (0, None, np.nan) and float(b) != 0.0) else 0.0
+def _pct(a, b) -> float:
+    """Retorna porcentagem (a / b * 100) com proteção contra divisão por zero."""
+    try:
+        if b in (0, None, np.nan):
+            return 0.0
+        if float(b) == 0.0:
+            return 0.0
+        return float(a) / float(b) * 100.0
+    except Exception:
+        return 0.0
 
 
 def _project_from_key(s: pd.Series) -> pd.Series:
+    """Extrai sigla do projeto de algo tipo 'TRBC-1234'."""
     return s.astype(str).str.extract(r"^([A-Z0-9_]+)-", expand=False).fillna("")
 
 
 def _first_col(df: pd.DataFrame, names: list[str]) -> str | None:
+    """Retorna o primeiro nome de coluna que existir no DataFrame dentro de uma lista candidata."""
     for n in names:
         if n in df.columns:
             return n
@@ -55,6 +75,7 @@ def _first_col(df: pd.DataFrame, names: list[str]) -> str | None:
 
 
 def _norm_cols(df: pd.DataFrame) -> dict:
+    """Mapeia 'nome normalizado' -> 'nome original da coluna'."""
     mapping = {}
     for c in df.columns:
         nc = str(c).replace("\xa0", " ")
@@ -64,16 +85,21 @@ def _norm_cols(df: pd.DataFrame) -> dict:
 
 
 def _is_automated_bool_series(s: pd.Series) -> pd.Series:
-    return s.astype(str).str.strip().str.lower().isin(["1", "true", "y", "yes", "sim", "automated"])
+    """Interpreta indicador de automatizado como booleano, em cima de vários possíveis valores textuais."""
+    return s.astype(str).str.strip().str.lower().isin(
+        ["1", "true", "y", "yes", "sim", "automated"]
+    )
 
 
 def _is_automated_from_custom_status_exact(value) -> bool:
+    """Considera automatizado apenas se o valor for exatamente 'Automated' (case-insensitive)."""
     if pd.isna(value):
         return False
     return str(value).strip().lower() == "automated"
 
 
 def _status_series(df: pd.DataFrame) -> pd.Series:
+    """Tenta achar alguma coluna de status num df de issues."""
     for c in ["status", "fields.status.name", "fields.status", "Status", "status.name"]:
         if c in df.columns:
             return df[c].astype(str)
@@ -81,96 +107,42 @@ def _status_series(df: pd.DataFrame) -> pd.Series:
 
 
 def _is_closed(status: str) -> bool:
+    """Retorna True se o status indicar algo 'Done/Closed/Resolved'."""
     s = str(status).upper()
     return bool(re.search(r"(DONE|CLOSED|RESOLVED)", s))
 
 
-def _gauge_percent_plotly(total: int, automated: int, not_applicable: int, title: str = "% Automated Test"):
-    import plotly.graph_objects as go
-    import numpy as np
+def _is_not_applicable_from_custom_status(value) -> bool:
+    if pd.isna(value):
+        return False
+    s = str(value).replace("\xa0", " ").strip().lower()
+    if s in {"n/a", "na"}:
+        return True
+    return ("not applic" in s) or ("nor applic" in s)
 
-    pct_now = (automated / total * 100.0) if total else 0.0
-    cap_pct = ((total - not_applicable) / total * 100.0) if total else 0.0
-    cap_pct = float(np.clip(cap_pct, 0.0, 100.0))
 
-    dom_x = [0.08, 0.92]
-    dom_y = [0.15, 0.92]
-
-    c_val = "#21BA45"
-    c_able = "rgba(15,122,110,0.18)"
-    c_na = "rgba(156,163,175,0.85)"
-    c_teto = "#F59E0B"
-
-    fig = go.Figure(go.Indicator(
-        mode="gauge+number",
-        value=float(np.clip(pct_now, 0.0, 100.0)),
-        number={"suffix": "%", "font": {"size": 26}},
-        title={"text": title, "font": {"size": 14}},
-        gauge={
-            "shape": "angular",
-            "axis": {
-                "range": [0, 100],
-                "tickmode": "array",
-                "tickvals": [0, 20, 40, 60, 80, 100],
-                "tickfont": {"size": 10}
-            },
-            "bar": {"color": c_val},
-            "steps": [
-                {"range": [0, cap_pct], "color": c_able},
-                {"range": [cap_pct, 100], "color": c_na},
-            ],
-            "threshold": {
-                "line": {"color": c_teto, "width": 6},
-                "thickness": 1.0,
-                "value": cap_pct
-            },
-            "bgcolor": "rgba(0,0,0,0)",
-        },
-        domain={"x": dom_x, "y": dom_y}
-    ))
-
-    # Geometria do ponto do teto em coords "paper"
-    ang = np.deg2rad(170.0 - (cap_pct * 170.0 / 100.0))
-    cx = (dom_x[0] + dom_x[1]) / 2.0
-    cy = dom_y[0]
-    r = (dom_y[1] - dom_y[0]) * 0.70
-    px = max(0.01, min(0.99, cx + r * np.cos(ang)))
-    py = max(0.01, min(0.99, cy + r * np.sin(ang)))
-
-    # OFFSETS EM PIXELS para posicionar a caixa
-    label_html = (
-        f"<b>Máx. {cap_pct:.1f}%</b><br>"
-        f"<span style='font-size:12px; color:#e5e7eb'>{not_applicable:,} Not applicable</span>"
-    )
-
-    # deslocamento da ponta da seta em "paper" (negativo = esquerda)
-    delta_tip_paper = -0.020
-    chart_width_px = 900
-    paper_span_x = (dom_x[1] - dom_x[0])
-    px_per_paper = chart_width_px * paper_span_x
-    comp_px = int(delta_tip_paper * px_per_paper)
-
-    # nova posição do head (ponta) da seta
-    x_head = px + delta_tip_paper
-    y_head = py
-
-    # offsets do balão (mantêm o balão no lugar bonito)
-    ax_px = -40 - comp_px
-    ay_px = -60
-
-    fig.add_annotation(
-        x=x_head, y=y_head, xref="paper", yref="paper",
-        ax=ax_px, ay=ay_px, axref="pixel", ayref="pixel",
-        text=label_html, showarrow=False, arrowhead=2, arrowwidth=2, arrowcolor=c_teto,
-        xanchor="center", yanchor="bottom", align="center",
-        bgcolor="rgba(0,0,0,0.65)", bordercolor=c_teto, borderwidth=1, borderpad=6
-    )
-
-    fig.update_layout(height=300, margin=dict(l=16, r=40, t=54, b=0))
-    return fig
+def _find_col_norm(df: pd.DataFrame, candidates: list[str]) -> str | None:
+    """Encontra coluna pelo nome normalizado."""
+    if df is None or df.empty:
+        return None
+    mapping = {}
+    for c in df.columns:
+        nc = str(c).replace("\xa0", " ")
+        nc = re.sub(r"\s+", " ", nc).strip().lower()
+        mapping[nc] = c
+    for cand in candidates:
+        nc = re.sub(r"\s+", " ", str(cand).strip().lower())
+        if nc in mapping:
+            return mapping[nc]
+    return None
 
 
 def _extract_issue_ids_from_testcases(df_zc: pd.DataFrame) -> pd.DataFrame:
+    """
+    Lê a tabela de Test Cases do Zephyr e tenta extrair todos os issue_id
+    (Jira) linkados em colunas tipo 'links.issues.issue id' ou URLs.
+    Retorna DF com colunas: tc_key, issue_id
+    """
     if df_zc.empty:
         return pd.DataFrame(columns=["tc_key", "issue_id"])
 
@@ -191,7 +163,11 @@ def _extract_issue_ids_from_testcases(df_zc: pd.DataFrame) -> pd.DataFrame:
 
     frames = []
 
-    id_like = [k for k in cols_norm.keys() if re.fullmatch(r"links\.issues\.(.*\sid|id)$", k)]
+    # campos que terminam com " id"
+    id_like = [
+        k for k in cols_norm.keys()
+        if re.fullmatch(r"links\.issues\.(.*\sid|id)$", k)
+    ]
     for k in id_like:
         col = cols_norm[k]
         tmp = df[[tc_col, col]].dropna()
@@ -201,8 +177,11 @@ def _extract_issue_ids_from_testcases(df_zc: pd.DataFrame) -> pd.DataFrame:
             tmp = tmp.assign(_id=vals).explode("_id")
             tmp["_id"] = pd.to_numeric(tmp["_id"], errors="coerce")
             tmp = tmp.dropna(subset=["_id"])
-            frames.append(tmp[[tc_col, "_id"]].rename(columns={tc_col: "tc_key", "_id": "issue_id"}))
+            frames.append(
+                tmp[[tc_col, "_id"]].rename(columns={tc_col: "tc_key", "_id": "issue_id"})
+            )
 
+    # campos com URL /issue/{id}
     for cand in ["links.issues.target", "links.issues url", "links.issues.target url"]:
         if cand in cols_norm:
             col = cols_norm[cand]
@@ -212,7 +191,9 @@ def _extract_issue_ids_from_testcases(df_zc: pd.DataFrame) -> pd.DataFrame:
                 tmp = tmp.assign(_id=vals).explode("_id")
                 tmp["_id"] = pd.to_numeric(tmp["_id"], errors="coerce")
                 tmp = tmp.dropna(subset=["_id"])
-                frames.append(tmp[[tc_col, "_id"]].rename(columns={tc_col: "tc_key", "_id": "issue_id"}))
+                frames.append(
+                    tmp[[tc_col, "_id"]].rename(columns={tc_col: "tc_key", "_id": "issue_id"})
+                )
             break
 
     if not frames:
@@ -224,48 +205,128 @@ def _extract_issue_ids_from_testcases(df_zc: pd.DataFrame) -> pd.DataFrame:
     return df_links
 
 
-def _find_col_norm(df: pd.DataFrame, candidates: list[str]) -> str | None:
-    if df is None or df.empty:
-        return None
-    mapping = {}
-    for c in df.columns:
-        nc = str(c).replace("\xa0", " ")
-        nc = re.sub(r"\s+", " ", nc).strip().lower()
-        mapping[nc] = c
-    for cand in candidates:
-        nc = re.sub(r"\s+", " ", str(cand).strip().lower())
-        if nc in mapping:
-            return mapping[nc]
-    return None
+def _gauge_percent_plotly(
+    total: int, automated: int, not_applicable: int, title: str = "% Automated Test"
+):
+    """
+    Gauge plotly com:
+    - Barra verde = % atual de automatizados
+    - Faixa teal clara = parte possível automatizar (sem not applicable)
+    - Cinza = parte impossível (Not applicable)
+    - Balão mostrando % máximo possível (teto) e qtd de "Not applicable".
+    """
+    pct_now = (automated / total * 100.0) if total else 0.0
+    cap_pct = ((total - not_applicable) / total * 100.0) if total else 0.0
+    cap_pct = float(np.clip(cap_pct, 0.0, 100.0))
+
+    dom_x = [0.08, 0.92]
+    dom_y = [0.15, 0.92]
+
+    c_val = "#21BA45"
+    c_able = "rgba(15,122,110,0.18)"
+    c_na = "rgba(156,163,175,0.85)"
+    c_teto = "#F59E0B"
+
+    fig = go.Figure(
+        go.Indicator(
+            mode="gauge+number",
+            value=float(np.clip(pct_now, 0.0, 100.0)),
+            number={"suffix": "%", "font": {"size": 26}},
+            title={"text": title, "font": {"size": 14}},
+            gauge={
+                "shape": "angular",
+                "axis": {
+                    "range": [0, 100],
+                    "tickmode": "array",
+                    "tickvals": [0, 20, 40, 60, 80, 100],
+                    "tickfont": {"size": 10},
+                },
+                "bar": {"color": c_val},
+                "steps": [
+                    {"range": [0, cap_pct], "color": c_able},
+                    {"range": [cap_pct, 100], "color": c_na},
+                ],
+                "threshold": {
+                    "line": {"color": c_teto, "width": 6},
+                    "thickness": 1.0,
+                    "value": cap_pct,
+                },
+                "bgcolor": "rgba(0,0,0,0)",
+            },
+            domain={"x": dom_x, "y": dom_y},
+        )
+    )
+
+    # --- Ponto do teto em coordenadas "paper"
+    # Usando um arco levemente menor que 180° só para ficar visualmente agradável
+    ang = np.deg2rad(170.0 - (cap_pct * 170.0 / 100.0))
+    cx = (dom_x[0] + dom_x[1]) / 2.0
+    cy = dom_y[0]
+    r = (dom_y[1] - dom_y[0]) * 0.70
+
+    px = max(0.01, min(0.99, cx + r * np.cos(ang)))
+    py = max(0.01, min(0.99, cy + r * np.sin(ang)))
+
+    label_html = (
+        f"<b>Máx. {cap_pct:.1f}%</b><br>"
+        f"<span style='font-size:12px; color:#e5e7eb'>{not_applicable:,} Not applicable</span>"
+    )
+
+    # Balão sem seta (só tooltip visual)
+    fig.add_annotation(
+        x=px,
+        y=py,
+        xref="paper",
+        yref="paper",
+        text=label_html,
+        showarrow=False,
+        xanchor="center",
+        yanchor="bottom",
+        align="center",
+        bgcolor="rgba(0,0,0,0.65)",
+        bordercolor=c_teto,
+        borderwidth=1,
+        borderpad=6,
+    )
+
+    fig.update_layout(height=300, margin=dict(l=16, r=40, t=54, b=0))
+    return fig
 
 
-def _is_not_applicable_from_custom_status(value) -> bool:
-    if pd.isna(value):
-        return False
-    s = str(value).replace("\xa0", " ").strip().lower()
-    if s in {"n/a", "na"}:
-        return True
-    return ("not applic" in s) or ("nor applic" in s)
-
-
+# colunas que podem representar "projeto/tribo/domínio"
 _PROJ_CANDS = [
-    "projectkey", "project key", "project.key", "project", "project.name", "project name",
-    "domain", "tribe", "tribo", "tribo (projeto)"
+    "projectkey",
+    "project key",
+    "project.key",
+    "project",
+    "project.name",
+    "project name",
+    "domain",
+    "tribe",
+    "tribo",
+    "tribo (projeto)",
 ]
 
 
 # --------------------------------------------------------------------
-# Página
+# Página principal
 # --------------------------------------------------------------------
 def pagina_dashboard_coverage_and_run():
+    # ----------------------------------------------------------------
+    # Layout base / CSS
+    # ----------------------------------------------------------------
     try:
         st.set_page_config(page_title="Coverage and Run", layout="wide")
     except Exception:
         pass
 
-    st.markdown("""
+    st.markdown(
+        """
     <style>
-      .block-container { padding-left: 1rem; padding-right: 1rem; }
+      .block-container {
+        padding-left: 1rem;
+        padding-right: 1rem;
+      }
       [data-testid="stMetric"] {
         padding:.4rem .6rem;
         border-radius:10px;
@@ -283,11 +344,15 @@ def pagina_dashboard_coverage_and_run():
         line-height:1.05;
       }
     </style>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
     st.markdown("### Coverage and Run")
 
-    # ---------------- Carregamento ----------------
+    # ----------------------------------------------------------------
+    # Carregamento dos dados
+    # ----------------------------------------------------------------
     df_story_raw = safe_read_csv(JIRA_STORY)
     df_epic_raw = safe_read_csv(JIRA_EPIC)
     df_bug = normalize_bugs(safe_read_csv(JIRA_BUG))
@@ -312,7 +377,9 @@ def pagina_dashboard_coverage_and_run():
         df_func_raw = pd.DataFrame()
         df_func = pd.DataFrame()
 
-    # ---------------- Normalize Issues ----------------
+    # ----------------------------------------------------------------
+    # Normalização de Issues
+    # ----------------------------------------------------------------
     df_story = normalize_issue_df(df_story_raw)
     df_epic = normalize_issue_df(df_epic_raw)
 
@@ -322,7 +389,9 @@ def pagina_dashboard_coverage_and_run():
         elif not d.empty:
             d["created_date"] = pd.NaT
 
-    # ---------------- Execuções ----------------
+    # ----------------------------------------------------------------
+    # Execuções (ZEPHYR_EXEC)
+    # ----------------------------------------------------------------
     if not df_ze.empty:
         exec_col = _first_col(df_ze, ["actualEndDate", "executedOn"])
         if exec_col:
@@ -332,7 +401,11 @@ def pagina_dashboard_coverage_and_run():
         else:
             df_ze["executed_date"] = pd.NaT
 
-        need_proj = ("projectKey" not in df_ze.columns) or df_ze["projectKey"].astype(str).str.strip().eq("").all()
+        # projectKey em execuções (caso não venha pronto)
+        need_proj = (
+            "projectKey" not in df_ze.columns
+            or df_ze["projectKey"].astype(str).str.strip().eq("").all()
+        )
         if need_proj:
             proj_series = None
             for cand in ["testCaseKey", "testCase.key"]:
@@ -343,7 +416,7 @@ def pagina_dashboard_coverage_and_run():
                 cand = _first_col(df_ze, ["testCycle.key", "testCycleKey", "cycleKey"])
                 if cand:
                     proj_series = _project_from_key(df_ze[cand])
-            if (proj_series is None or proj_series.fillna("").eq("").all()) and "key" in df_ze.columns:
+            if proj_series is None or proj_series.fillna("").eq("").all() and "key" in df_ze.columns:
                 proj_series = _project_from_key(df_ze["key"])
             if proj_series is None or proj_series.fillna("").eq("").all():
                 cand = _first_col(df_ze, ["issueKey", "testKey", "Test Case Key"])
@@ -351,14 +424,20 @@ def pagina_dashboard_coverage_and_run():
                     proj_series = _project_from_key(df_ze[cand])
             if proj_series is None:
                 proj_series = pd.Series([""] * len(df_ze), index=df_ze.index)
+
             df_ze["projectKey"] = proj_series.fillna("").astype(str)
 
         df_ze["projectKey"] = df_ze["projectKey"].astype("category")
 
-    # ---------------- Test Cases ----------------
+    # ----------------------------------------------------------------
+    # Test Cases (ZEPHYR_TC)
+    # ----------------------------------------------------------------
     if not df_zc.empty:
         if "projectKey" not in df_zc.columns:
-            df_zc["projectKey"] = _project_from_key(df_zc["key"]) if "key" in df_zc.columns else ""
+            if "key" in df_zc.columns:
+                df_zc["projectKey"] = _project_from_key(df_zc["key"])
+            else:
+                df_zc["projectKey"] = ""
 
         created_col = _first_col(df_zc, ["created", "createdOn", "createdDate", "creationDate", "created_at"])
         if created_col:
@@ -377,7 +456,9 @@ def pagina_dashboard_coverage_and_run():
 
         df_zc["projectKey"] = df_zc["projectKey"].astype("category")
 
-    # ---------------- Test Cycles ----------------
+    # ----------------------------------------------------------------
+    # Test Cycles (ZEPHYR_CYCLE)
+    # ----------------------------------------------------------------
     if not df_cycle.empty:
         if "projectKey" not in df_cycle.columns:
             src_col = "key" if "key" in df_cycle.columns else ("name" if "name" in df_cycle.columns else None)
@@ -397,7 +478,9 @@ def pagina_dashboard_coverage_and_run():
             if "cycle_date" not in df_cycle.columns:
                 df_cycle["cycle_date"] = pd.NaT
 
-    # ---------------- Filtros ----------------
+    # ----------------------------------------------------------------
+    # Filtros (Tribo / Período)
+    # ----------------------------------------------------------------
     def _collect_projects(df: pd.DataFrame) -> list[str]:
         if df is None or df.empty:
             return []
@@ -406,12 +489,12 @@ def pagina_dashboard_coverage_and_run():
             return []
         return (
             df[col]
-            .dropna()
-            .astype(str)
-            .str.replace("\xa0", " ")
-            .str.strip()
-            .str.upper()
-            .tolist()
+                .dropna()
+                .astype(str)
+                .str.replace("\xa0", " ")
+                .str.strip()
+                .str.upper()
+                .tolist()
         )
 
     candidatos = set()
@@ -419,14 +502,20 @@ def pagina_dashboard_coverage_and_run():
         candidatos.update(_collect_projects(_df))
     projects = ["Todos"] + sorted([p for p in candidatos if p])
 
+    # range de datas base (executions se houver, senão stories)
     if not df_ze.empty and "executed_date" in df_ze.columns:
         all_dates = df_ze["executed_date"].dropna().tolist()
     elif not df_story.empty:
         all_dates = df_story["created_date"].dropna().tolist()
     else:
         all_dates = []
-    min_d, max_d = (min(all_dates), max(all_dates)) if all_dates else (date.today() - timedelta(days=180), date.today())
 
+    if all_dates:
+        min_d, max_d = (min(all_dates), max(all_dates))
+    else:
+        min_d, max_d = (date.today() - timedelta(days=180), date.today())
+
+    # estado compartilhado do período
     if "periodo_master_car" not in st.session_state:
         st.session_state["periodo_master_car"] = (min_d, max_d)
 
@@ -450,6 +539,7 @@ def pagina_dashboard_coverage_and_run():
         st.session_state["periodo_master_car"] = st.session_state["intervalo_slider_car"]
         st.session_state["intervalo_data_car"] = st.session_state["intervalo_slider_car"]
 
+    # Linha de filtros
     c0, c1, c2 = st.columns([0.50, 0.30, 0.20])
     with c0:
         sel_project = st.selectbox("Tribo (Projeto)", options=projects, index=0)
@@ -488,6 +578,9 @@ def pagina_dashboard_coverage_and_run():
 
     d_start, d_end = st.session_state["periodo_master_car"]
 
+    # ----------------------------------------------------------------
+    # Funções de filtro de período / tribo
+    # ----------------------------------------------------------------
     def _f_proj(df: pd.DataFrame, proj_sel: str) -> pd.DataFrame:
         if df is None or df.empty or not proj_sel or proj_sel == "Todos":
             return df
@@ -497,10 +590,11 @@ def pagina_dashboard_coverage_and_run():
         s = df[col].astype(str).str.replace("\xa0", " ").str.strip().str.upper()
         return df.loc[s.eq(proj_sel)].copy()
 
-    def _f_period_created(df: pd.DataFrame) -> pd.DataFrame:
-        if df.empty or "created_date" not in df.columns:
+    def _f_period_on_col(df: pd.DataFrame, col_name: str, d1: date, d2: date) -> pd.DataFrame:
+        if df.empty or col_name not in df.columns:
             return df
-        s = df["created_date"]
+        s = df[col_name]
+
         if is_datetime64_any_dtype(s):
             s_ts = pd.to_datetime(s, errors="coerce")
             try:
@@ -511,68 +605,30 @@ def pagina_dashboard_coverage_and_run():
                     s_ts = s_ts.dt.tz_convert(None)
                 except Exception:
                     pass
-            start_ts = pd.Timestamp(d_start)
-            end_ts = pd.Timestamp(d_end) + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
+            start_ts = pd.Timestamp(d1)
+            end_ts = pd.Timestamp(d2) + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
             return df[s_ts.between(start_ts, end_ts, inclusive="both")].copy()
+
         try:
-            return df[(s >= d_start) & (s <= d_end)].copy()
+            return df[(s >= d1) & (s <= d2)].copy()
         except Exception:
             s2 = pd.to_datetime(s, errors="coerce").dt.date
             df2 = df.copy()
-            df2["created_date"] = s2
-            return df2[(s2 >= d_start) & (s2 <= d_end)].copy()
+            df2[col_name] = s2
+            return df2[(s2 >= d1) & (s2 <= d2)].copy()
+
+    def _f_period_created(df: pd.DataFrame) -> pd.DataFrame:
+        return _f_period_on_col(df, "created_date", d_start, d_end)
 
     def _f_period_exec(df: pd.DataFrame) -> pd.DataFrame:
-        if df.empty or "executed_date" not in df.columns:
-            return df
-        s = df["executed_date"]
-        if is_datetime64_any_dtype(s):
-            s_ts = pd.to_datetime(s, errors="coerce")
-            try:
-                if is_datetime64tz_dtype(s_ts.dtype):
-                    s_ts = s_ts.dt.tz_localize(None)
-            except Exception:
-                try:
-                    s_ts = s_ts.dt.tz_convert(None)
-                except Exception:
-                    pass
-            start_ts = pd.Timestamp(d_start)
-            end_ts = pd.Timestamp(d_end) + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
-            return df[s_ts.between(start_ts, end_ts, inclusive="both")].copy()
-        try:
-            return df[(s >= d_start) & (s <= d_end)].copy()
-        except Exception:
-            s2 = pd.to_datetime(s, errors="coerce").dt.date
-            df2 = df.copy()
-            df2["executed_date"] = s2
-            return df2[(s2 >= d_start) & (s2 <= d_end)].copy()
+        return _f_period_on_col(df, "executed_date", d_start, d_end)
 
     def _f_period_cycle(df: pd.DataFrame) -> pd.DataFrame:
-        if df.empty or "cycle_date" not in df.columns:
-            return df
-        s = df["cycle_date"]
-        if is_datetime64_any_dtype(s):
-            s_ts = pd.to_datetime(s, errors="coerce")
-            try:
-                if is_datetime64tz_dtype(s_ts.dtype):
-                    s_ts = s_ts.dt.tz_localize(None)
-            except Exception:
-                try:
-                    s_ts = s_ts.dt.tz_convert(None)
-                except Exception:
-                    pass
-            start_ts = pd.Timestamp(d_start)
-            end_ts = pd.Timestamp(d_end) + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
-            return df[s_ts.between(start_ts, end_ts, inclusive="both")].copy()
-        try:
-            return df[(s >= d_start) & (s <= d_end)].copy()
-        except Exception:
-            s2 = pd.to_datetime(s, errors="coerce").dt.date
-            df2 = df.copy()
-            df2["cycle_date"] = s2
-            return df2[(s2 >= d_start) & (s2 <= d_end)].copy()
+        return _f_period_on_col(df, "cycle_date", d_start, d_end)
 
-    # aplica filtros
+    # ----------------------------------------------------------------
+    # Aplicando filtros efetivamente
+    # ----------------------------------------------------------------
     f_story = _f_proj(_f_period_created(df_story), sel_project)
     f_epic = _f_proj(_f_period_created(df_epic), sel_project)
     f_func = _f_proj(_f_period_created(df_func), sel_project)
@@ -580,11 +636,10 @@ def pagina_dashboard_coverage_and_run():
     f_ze = _f_proj(_f_period_exec(df_ze), sel_project)
     f_cyc = _f_proj(_f_period_cycle(df_cycle), sel_project)
 
-    # ============================================================
-    #               MÉTRICAS PRINCIPAIS (5 x 4 CARDS)
-    # ============================================================
-
-    # ----- Domínios / Tribos -----
+    # ----------------------------------------------------------------
+    # Métricas principais
+    # ----------------------------------------------------------------
+    # Domínios / tribos
     if not df_proj.empty and {"name", "key"}.issubset(df_proj.columns):
         if sel_project == "Todos":
             domains = len(df_proj)
@@ -606,19 +661,20 @@ def pagina_dashboard_coverage_and_run():
         )
         domains = base.dropna().astype(str).str.upper().nunique()
 
-    # ----- Contagem de Test Cases (Manual / Auto / Total) -----
+    # Test cases (Manual / Automated / Total)
     automated_tests = total_tests = manual_tests = 0
     if not f_zc.empty:
         auto_col = _first_col(f_zc, ["customFields.Automation Status"])
-        auto_series_cases = (
-            f_zc[auto_col].apply(_is_automated_from_custom_status_exact)
-            if auto_col
-            else pd.Series(False, index=f_zc.index)
-        )
+        if auto_col:
+            auto_series_cases = f_zc[auto_col].apply(_is_automated_from_custom_status_exact)
+        else:
+            auto_series_cases = pd.Series(False, index=f_zc.index)
+
         automated_tests = int(auto_series_cases.sum())
         total_tests = int(len(f_zc))
         manual_tests = int(total_tests - automated_tests)
 
+    # fallback pelos runs, se não houver nada em zc
     if total_tests == 0 and not f_ze.empty:
         key_run = _first_col(f_ze, ["testCaseKey", "testCase.key", "testKey", "testCaseId", "testId"])
         if key_run:
@@ -629,7 +685,7 @@ def pagina_dashboard_coverage_and_run():
             manual_tests = int((~auto_by_case).sum())
             total_tests = int(auto_by_case.shape[0])
 
-    # ----- Cycles -----
+    # Test Cycles
     if not f_cyc.empty:
         cyc_key = _first_col(f_cyc, ["key", "cycleKey", "name", "cycleId", "id"])
         cycles = f_cyc[cyc_key].dropna().astype(str).nunique() if cyc_key else int(len(f_cyc))
@@ -639,16 +695,16 @@ def pagina_dashboard_coverage_and_run():
     else:
         cycles = 0
 
-    # ----- Runs (Manual / Auto / Total) -----
+    # Runs manual / auto / total
     if not f_ze.empty:
         is_auto_run = _is_automated_bool_series(f_ze.get("automated", pd.Series(dtype="object")))
         aut_runs = int(is_auto_run.sum())
         man_runs = int((~is_auto_run).sum())
     else:
         aut_runs = man_runs = 0
-    total_runs = man_runs + aut_runs
+    total_runs = aut_runs + man_runs
 
-    # ----- Links TC x Issues -----
+    # Links TC x Issues
     links_by_id = _extract_issue_ids_from_testcases(f_zc) if not f_zc.empty else pd.DataFrame(
         columns=["tc_key", "issue_id"]
     )
@@ -676,7 +732,6 @@ def pagina_dashboard_coverage_and_run():
         else pd.Series([], dtype="Int64")
     )
 
-    # Conjunto de IDs cobertos
     if not links_by_id.empty:
         covered_ids_all = set(
             pd.to_numeric(links_by_id["issue_id"], errors="coerce").dropna().astype("Int64").tolist()
@@ -684,7 +739,7 @@ def pagina_dashboard_coverage_and_run():
     else:
         covered_ids_all = set()
 
-    # ----- Coverage por tipo -----
+    # Coverage por tipo
     if not story_ids.empty and covered_ids_all:
         covered_story_ids = covered_ids_all & set(story_ids.tolist())
         pct_story_cov = _pct(len(covered_story_ids), int(f_story.shape[0]))
@@ -703,16 +758,16 @@ def pagina_dashboard_coverage_and_run():
     else:
         pct_func_cov = 0.0
 
-    # ----- Coverage Total (Story + Epic + Func) -----
+    # Coverage total (Story + Epic + Func)
     all_issue_ids = set(story_ids.tolist()) | set(epic_ids.tolist()) | set(func_ids.tolist())
     if all_issue_ids and covered_ids_all:
         covered_total_ids = covered_ids_all & all_issue_ids
-        denom_total = len(all_issue_ids)  # denominador = issues únicas
+        denom_total = len(all_issue_ids)
         pct_total_cov = _pct(len(covered_total_ids), denom_total)
     else:
         pct_total_cov = 0.0
 
-    # ----- Status / Closed -----
+    # Status / Closed
     story_status_map = (
         dict(
             zip(
@@ -746,7 +801,7 @@ def pagina_dashboard_coverage_and_run():
     else:
         epic_closed = 0
 
-    # --- Test average per issue (Stories + Epics + Func) ---
+    # Test average per issue (Stories + Epics + Func)
     n_story = int(f_story.shape[0])
     n_epic = int(f_epic.shape[0])
     n_func = int(f_func.shape[0]) if not f_func.empty else 0
@@ -757,10 +812,9 @@ def pagina_dashboard_coverage_and_run():
     else:
         test_avg = 0.0
 
-    # ============================================================
-    #                 LINHAS DE CARDS (5 x 4)
-    # ============================================================
-
+    # ----------------------------------------------------------------
+    # CARDS – 5 linhas x 4 cards
+    # ----------------------------------------------------------------
     # 1ª linha: Tribo, Test average per issue, BDD Script (0), Test Cycle
     row1 = st.columns(4)
     with row1[0]:
@@ -775,9 +829,9 @@ def pagina_dashboard_coverage_and_run():
     # 2ª linha: QTD Story, QTD Epic, QTD Story Closed, QTD Epic Closed
     row2 = st.columns(4)
     with row2[0]:
-        st.metric("QTD Story", int(f_story.shape[0]))
+        st.metric("QTD Story", n_story)
     with row2[1]:
-        st.metric("QTD Epic", int(f_epic.shape[0]))
+        st.metric("QTD Epic", n_epic)
     with row2[2]:
         st.metric("QTD Story Closed", int(story_closed))
     with row2[3]:
@@ -818,12 +872,12 @@ def pagina_dashboard_coverage_and_run():
 
     st.markdown("---")
 
-    # ============================================================
-    #                    GRÁFICOS
-    # ============================================================
+    # ----------------------------------------------------------------
+    # GRÁFICOS
+    # ----------------------------------------------------------------
     cA, cB = st.columns(2)
 
-    # ---------------- Gauge Automated Backlog ----------------
+    # ---------------- Gauge: Automated Backlog ----------------
     with cA:
         st.markdown("#### Automated Backlog")
 
@@ -838,10 +892,10 @@ def pagina_dashboard_coverage_and_run():
             if auto_col:
                 s_status = (
                     f_zc[auto_col]
-                    .astype(str)
-                    .str.replace("\xa0", " ")
-                    .str.strip()
-                    .str.lower()
+                        .astype(str)
+                        .str.replace("\xa0", " ")
+                        .str.strip()
+                        .str.lower()
                 )
                 auto_mask = s_status.eq("automated")
                 not_app_mask = s_status.apply(_is_not_applicable_from_custom_status)
@@ -867,11 +921,12 @@ def pagina_dashboard_coverage_and_run():
             c2.metric("Backlog automated", n_backlog)
             c3.metric("Not applicable automated", n_not_app)
 
-    # ---------------- Regressive / Positive-Negative ----------------
+    # ---------------- Regressive x Others / Positive x Negative ----------------
     with cB:
-        cA2, cB2 = st.columns(2)
+        cB1, cB2 = st.columns(2)
 
-        with cA2:
+        # Regressive × Others
+        with cB1:
             st.markdown("#### Regressive × Others (Test type)")
 
             if f_zc.empty:
@@ -887,10 +942,10 @@ def pagina_dashboard_coverage_and_run():
                 else:
                     s = (
                         f_zc[tt_col]
-                        .astype(str)
-                        .str.replace("\xa0", " ")
-                        .str.strip()
-                        .str.lower()
+                            .astype(str)
+                            .str.replace("\xa0", " ")
+                            .str.strip()
+                            .str.lower()
                     )
 
                     is_reg = s.str.contains(r"\bregress", na=False)
@@ -902,13 +957,13 @@ def pagina_dashboard_coverage_and_run():
                                 "Qtd": [int(is_reg.sum()), int((~is_reg).sum())],
                             }
                         )
-                        .sort_values("Qtd", ascending=False)
+                            .sort_values("Qtd", ascending=False)
                     )
 
                     bars = (
                         alt.Chart(df_rr)
-                        .mark_bar(size=60)
-                        .encode(
+                            .mark_bar(size=60)
+                            .encode(
                             x=alt.X("Categoria:N", title=None, sort="-y"),
                             y=alt.Y("Qtd:Q", title="Test Cases", axis=alt.Axis(format=",d", grid=True)),
                             color=alt.Color(
@@ -924,13 +979,13 @@ def pagina_dashboard_coverage_and_run():
                                 alt.Tooltip("Qtd:Q", title="Quantidade", format=",d"),
                             ],
                         )
-                        .properties(height=460)
+                            .properties(height=460)
                     )
 
                     labels = (
                         alt.Chart(df_rr)
-                        .mark_text(dy=-8, size=12, color="#E5E7EB")
-                        .encode(
+                            .mark_text(dy=-8, size=12, color="#E5E7EB")
+                            .encode(
                             x=alt.X("Categoria:N", sort="-y"),
                             y=alt.Y("Qtd:Q"),
                             text=alt.Text("Qtd:Q", format=",d"),
@@ -939,6 +994,7 @@ def pagina_dashboard_coverage_and_run():
 
                     st.altair_chart((bars + labels), use_container_width=True)
 
+        # Positive x Negative
         with cB2:
             st.markdown("#### Positive × Negative (Test class)")
 
@@ -955,10 +1011,10 @@ def pagina_dashboard_coverage_and_run():
                 else:
                     s = (
                         f_zc[tc_col]
-                        .astype(str)
-                        .str.replace("\xa0", " ")
-                        .str.strip()
-                        .str.lower()
+                            .astype(str)
+                            .str.replace("\xa0", " ")
+                            .str.strip()
+                            .str.lower()
                     )
                     is_pos = s.eq("positive")
                     is_neg = s.eq("negative")
@@ -976,13 +1032,13 @@ def pagina_dashboard_coverage_and_run():
                                     "Qtd": [n_pos, n_neg],
                                 }
                             )
-                            .sort_values("Qtd", ascending=False)
+                                .sort_values("Qtd", ascending=False)
                         )
 
                         bars = (
                             alt.Chart(df_pn)
-                            .mark_bar(size=60)
-                            .encode(
+                                .mark_bar(size=60)
+                                .encode(
                                 x=alt.X("Classe:N", title=None, sort="-y"),
                                 y=alt.Y("Qtd:Q", title="Test Cases", axis=alt.Axis(format=",d", grid=True)),
                                 color=alt.Color(
@@ -998,13 +1054,13 @@ def pagina_dashboard_coverage_and_run():
                                     alt.Tooltip("Qtd:Q", title="Quantidade", format=",d"),
                                 ],
                             )
-                            .properties(height=460)
+                                .properties(height=460)
                         )
 
                         labels = (
                             alt.Chart(df_pn)
-                            .mark_text(dy=-8, size=12, color="#E5E7EB")
-                            .encode(
+                                .mark_text(dy=-8, size=12, color="#E5E7EB")
+                                .encode(
                                 x=alt.X("Classe:N", sort="-y"),
                                 y=alt.Y("Qtd:Q"),
                                 text=alt.Text("Qtd:Q", format=",d"),
@@ -1015,9 +1071,12 @@ def pagina_dashboard_coverage_and_run():
 
     st.markdown("---")
 
-    # ---------------- Linha mensal e barras de runs ----------------
+    # ----------------------------------------------------------------
+    # Gráfico de Test Evolution + barras de runs e Automation in regressive
+    # ----------------------------------------------------------------
     cL, cR = st.columns(2)
 
+    # Test evolution (linha mensal)
     with cL:
         st.markdown("#### Test evolution (mensal)")
         if f_ze.empty:
@@ -1044,21 +1103,24 @@ def pagina_dashboard_coverage_and_run():
                 df_month = df_month.sort_values("month_dt")
             except Exception:
                 pass
+
             ch = (
                 alt.Chart(df_month)
-                .mark_line(point=True)
-                .encode(
+                    .mark_line(point=True)
+                    .encode(
                     x=alt.X("month:N", title="Mês"),
                     y=alt.Y("runs:Q", title="Runs"),
                     color=alt.Color("tipo:N", legend=legend_opts),
                 )
-                .properties(height=420, padding={"bottom": 40})
+                    .properties(height=420, padding={"bottom": 40})
             )
             st.altair_chart(ch, use_container_width=True)
 
+    # Barras de Automated run x Manual run + Automation in regressive
     with cR:
         cR1, cR2 = st.columns(2)
 
+        # Automated run x Manual run
         with cR1:
             st.markdown("#### Automated run × Manual run")
             if f_ze.empty or "automated" not in f_ze.columns:
@@ -1067,15 +1129,18 @@ def pagina_dashboard_coverage_and_run():
                 is_auto = _is_automated_bool_series(f_ze["automated"])
                 df_am = (
                     pd.DataFrame(
-                        {"tipo": ["Automated", "Manual"], "runs": [int(is_auto.sum()), int((~is_auto).sum())]}
+                        {
+                            "tipo": ["Automated", "Manual"],
+                            "runs": [int(is_auto.sum()), int((~is_auto).sum())],
+                        }
                     )
-                    .sort_values("runs", ascending=False)
+                        .sort_values("runs", ascending=False)
                 )
 
                 bars = (
                     alt.Chart(df_am)
-                    .mark_bar(size=60)
-                    .encode(
+                        .mark_bar(size=60)
+                        .encode(
                         x=alt.X("tipo:N", title=None, sort="-y"),
                         y=alt.Y("runs:Q", title="Runs", axis=alt.Axis(format=",d", grid=True)),
                         color=alt.Color(
@@ -1088,12 +1153,12 @@ def pagina_dashboard_coverage_and_run():
                             alt.Tooltip("runs:Q", title="Quantidade", format=",d"),
                         ],
                     )
-                    .properties(height=340)
+                        .properties(height=340)
                 )
                 labels = (
                     alt.Chart(df_am)
-                    .mark_text(dy=-8, size=12, color="#E5E7EB")
-                    .encode(
+                        .mark_text(dy=-8, size=12, color="#E5E7EB")
+                        .encode(
                         x=alt.X("tipo:N", sort="-y"),
                         y=alt.Y("runs:Q"),
                         text=alt.Text("runs:Q", format=",d"),
@@ -1101,6 +1166,7 @@ def pagina_dashboard_coverage_and_run():
                 )
                 st.altair_chart((bars + labels), use_container_width=True)
 
+        # Automation in regressive
         with cR2:
             st.markdown("#### Automation in regressive")
             if f_zc.empty:
@@ -1119,17 +1185,17 @@ def pagina_dashboard_coverage_and_run():
                 else:
                     s_type = (
                         f_zc[tt_col]
-                        .astype(str)
-                        .str.replace("\xa0", " ")
-                        .str.strip()
-                        .str.lower()
+                            .astype(str)
+                            .str.replace("\xa0", " ")
+                            .str.strip()
+                            .str.lower()
                     )
                     s_auto = (
                         f_zc[auto_tc]
-                        .astype(str)
-                        .str.replace("\xa0", " ")
-                        .str.strip()
-                        .str.lower()
+                            .astype(str)
+                            .str.replace("\xa0", " ")
+                            .str.strip()
+                            .str.lower()
                     )
 
                     reg_mask = s_type.str.contains(r"\bregress", na=False)
@@ -1151,13 +1217,13 @@ def pagina_dashboard_coverage_and_run():
                                     "Qtd": [int(auto_reg), int(man_reg)],
                                 }
                             )
-                            .sort_values("Qtd", ascending=False)
+                                .sort_values("Qtd", ascending=False)
                         )
 
                         bars = (
                             alt.Chart(df_reg)
-                            .mark_bar(size=60)
-                            .encode(
+                                .mark_bar(size=60)
+                                .encode(
                                 x=alt.X("Categoria:N", title=None, sort="-y"),
                                 y=alt.Y("Qtd:Q", title="Test Cases", axis=alt.Axis(format=",d", grid=True)),
                                 color=alt.Color(
@@ -1173,12 +1239,12 @@ def pagina_dashboard_coverage_and_run():
                                     alt.Tooltip("Qtd:Q", title="Quantidade", format=",d"),
                                 ],
                             )
-                            .properties(height=340)
+                                .properties(height=340)
                         )
                         labels = (
                             alt.Chart(df_reg)
-                            .mark_text(dy=-8, size=12, color="#E5E7EB")
-                            .encode(
+                                .mark_text(dy=-8, size=12, color="#E5E7EB")
+                                .encode(
                                 x=alt.X("Categoria:N", sort="-y"),
                                 y=alt.Y("Qtd:Q"),
                                 text=alt.Text("Qtd:Q", format=",d"),
