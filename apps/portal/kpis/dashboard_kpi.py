@@ -3,7 +3,6 @@
 import streamlit as st
 import pandas as pd
 import altair as alt
-from datetime import datetime
 
 from .analytics.constants import (
     WARN_RATIO, KPI_LASTUPDATE,
@@ -14,20 +13,81 @@ from .analytics.constants import (
 )
 from .analytics.data_access import safe_read_csv, read_last_update
 from .analytics.transformers import (
-    normalize_issue_df, normalize_bugs, extract_linked_issue_ids, extract_years_from_dfs, apply_year_filter,
-    ensure_project_on_executions, apply_project_bugs
+    normalize_issue_df,
+    normalize_bugs,
+    extract_linked_issue_ids,
+    extract_years_from_dfs,
+    apply_year_filter,
+    ensure_project_on_executions,
+    apply_project_bugs,
 )
 from .analytics.metrics import (
     get_target,
-    kpi_coverage_now, kpi_test_avg_per_issue_now, kpi_auto_runs_now,
-    kpi_auto_reg_now, kpi_test_reg_now, kpi_negative_now, avg_bug_days,
-    monthly_series_coverage, monthly_series_test_avg, monthly_series_auto_runs,
-    monthly_series_auto_reg, monthly_series_test_reg, monthly_series_negative
+    kpi_test_avg_per_issue_now,
+    kpi_auto_runs_now,
+    kpi_auto_reg_now,
+    kpi_test_reg_now,
+    kpi_negative_now,
+    avg_bug_days,
+    monthly_series_coverage,
+    monthly_series_test_avg,
+    monthly_series_auto_runs,
+    monthly_series_auto_reg,
+    monthly_series_test_reg,
+    monthly_series_negative,
 )
 
 
+# ---------- Helpers internos ----------
+
+def _safe_issue_ids(df: pd.DataFrame) -> set:
+    """Extrai os IDs numéricos de issue (coluna 'id') como set."""
+    if df is None or df.empty or "id" not in df.columns:
+        return set()
+    s = pd.to_numeric(df["id"], errors="coerce").dropna().astype("Int64")
+    return set(s.tolist())
+
+
+def _compute_total_coverage(df_story_f: pd.DataFrame,
+                            df_epic_f: pd.DataFrame,
+                            df_func_f: pd.DataFrame,
+                            df_zc_f: pd.DataFrame) -> float:
+    """
+    % Total Coverage:
+      - Base = Story + Epic + Func filtradas (tribo + ano)
+      - Coberta = issue que aparece em pelo menos 1 Test Case (coverage)
+    """
+
+    # 1) Conjunto de todas as issues (Story + Epic + Func)
+    story_ids = _safe_issue_ids(df_story_f)
+    epic_ids  = _safe_issue_ids(df_epic_f)
+    func_ids  = _safe_issue_ids(df_func_f)
+
+    all_issue_ids = story_ids | epic_ids | func_ids
+    denom = len(all_issue_ids)
+    if denom == 0:
+        return 0.0
+
+    # 2) Issues cobertas = IDs que aparecem nos Test Cases filtrados
+    #    Usamos o helper padrão para extrair campos tipo "links.issues.issueId"
+    covered_ids = extract_linked_issue_ids(
+        df_zc_f,
+        (
+            "links.issues.issueId",
+            "links.issues.issue id",
+            "links.issues.issue idnbsp",
+        ),
+    )
+
+    # Interseção: só conta como coberta se estiver na base total
+    covered_total_ids = all_issue_ids & covered_ids
+    num_cov = len(covered_total_ids)
+
+    return (num_cov / denom) * 100.0
+
+
 def pagina_dashboard_kpi():
-    # set_page_config apenas uma vez
+    # Evita erro de múltiplas chamadas no Streamlit
     try:
         st.set_page_config(page_title="Quality KPI's", layout="wide")
     except Exception:
@@ -54,7 +114,6 @@ def pagina_dashboard_kpi():
   background: rgba(186,85,211,.16) !important;
   border-color: transparent !important;
 }
-.block-container { padding-left: 1rem; padding-right: 1rem; }
 .kpi-below button  {
   outline: 2px solid #d9534f !important;
   background: rgba(217,83,79,.16) !important;
@@ -70,50 +129,45 @@ def pagina_dashboard_kpi():
   background: rgba(92,184,92,.16) !important;
   border-color: transparent !important;
 }
+.block-container { padding-left: 1rem; padding-right: 1rem; }
 </style>
 """, unsafe_allow_html=True)
 
     st.markdown("### Quality KPI’s")
 
-    # --- Carregamento (cacheado por mtime) ---
+    # ---------- Carregamento de dados ----------
     df_func_raw = safe_read_csv(JIRA_FUNC)
     df_epic_raw = safe_read_csv(JIRA_EPIC)
     df_story_raw = safe_read_csv(JIRA_STORY)
-    df_bug      = normalize_bugs(safe_read_csv(JIRA_BUG))
-    df_subbug   = normalize_bugs(safe_read_csv(JIRA_SUBBUG))
-    df_proj     = safe_read_csv(JIRA_PROJ)
+    df_bug_raw   = safe_read_csv(JIRA_BUG)
+    df_subbug_raw = safe_read_csv(JIRA_SUBBUG)
+    df_proj      = safe_read_csv(JIRA_PROJ)
 
-    df_zc       = safe_read_csv(ZEPHYR_TC)
-    df_ze       = ensure_project_on_executions(
-                     safe_read_csv([ZEPHYR_EXEC_MAIN, ZEPHYR_EXEC_FALLBACK])
-                 )
-    df_cyc      = safe_read_csv([ZEPHYR_CYCLE_MAIN, ZEPHYR_CYCLE_FALLBACK])
+    df_zc_raw    = safe_read_csv(ZEPHYR_TC)
+    df_ze_raw    = safe_read_csv([ZEPHYR_EXEC_MAIN, ZEPHYR_EXEC_FALLBACK])
+    df_cyc_raw   = safe_read_csv([ZEPHYR_CYCLE_MAIN, ZEPHYR_CYCLE_FALLBACK])
 
-    df_targets  = safe_read_csv(KPI_TARGETS, columns=["kpi", "projectKey", "year", "target", "goal"])
+    df_targets   = safe_read_csv(KPI_TARGETS, columns=["kpi", "projectKey", "year", "target", "goal"])
     if not df_targets.empty:
-        df_targets["kpi"] = df_targets["kpi"].astype(str)
+        df_targets["kpi"]        = df_targets["kpi"].astype(str)
         df_targets["projectKey"] = df_targets["projectKey"].astype(str)
-        df_targets["year"] = pd.to_numeric(df_targets["year"], errors="coerce").astype("Int64")
-        df_targets["target"] = pd.to_numeric(df_targets["target"], errors="coerce")
-        df_targets["goal"] = df_targets["goal"].astype(str).str.lower()
+        df_targets["year"]       = pd.to_numeric(df_targets["year"], errors="coerce").astype("Int64")
+        df_targets["target"]     = pd.to_numeric(df_targets["target"], errors="coerce")
+        df_targets["goal"]       = df_targets["goal"].astype(str).str.lower()
     else:
         df_targets = pd.DataFrame(columns=["kpi", "projectKey", "year", "target", "goal"])
 
-    # --- Normalizações de issues ---
+    # Normalizações
     df_func  = normalize_issue_df(df_func_raw)
     df_epic  = normalize_issue_df(df_epic_raw)
     df_story = normalize_issue_df(df_story_raw)
 
-    # Execuções: garante projectKey
-    if not df_ze.empty:
-        df_ze = ensure_project_on_executions(df_ze)
+    df_bug    = normalize_bugs(df_bug_raw)
+    df_subbug = normalize_bugs(df_subbug_raw)
 
-    # Links de issues em Test Cases e Cycles
-    tc_issue_ids  = extract_linked_issue_ids(df_zc, ("links.issues.issueId",))
-    cyc_issue_ids = extract_linked_issue_ids(df_cyc, ("links.issues.issueId",))
-    linked_issue_ids = tc_issue_ids | cyc_issue_ids
+    df_ze = ensure_project_on_executions(df_ze_raw) if not df_ze_raw.empty else df_ze_raw
 
-    # --- Projetos para filtro (Tribo) ---
+    # ---------- Projetos (Tribo) ----------
     if not df_proj.empty and {"name", "key"}.issubset(df_proj.columns):
         projects_tuples = [
             (row["name"], row["key"])
@@ -124,26 +178,30 @@ def pagina_dashboard_kpi():
         name_to_key = {name: key for name, key in projects_tuples}
     else:
         pref = pd.concat(
-            [df_func["projectKey"], df_epic["projectKey"], df_story["projectKey"]],
+            [
+                df_func.get("projectKey", pd.Series(dtype=str)),
+                df_epic.get("projectKey", pd.Series(dtype=str)),
+                df_story.get("projectKey", pd.Series(dtype=str)),
+            ],
             ignore_index=True,
         )
         project_names = sorted([p for p in pref.dropna().unique().tolist() if p])
         name_to_key = {p: p for p in project_names}
 
-    # --- Anos disponíveis (APENAS criação de Story/Epic/Func) ---
+    # ---------- Anos disponíveis (Story/Epic/Func) ----------
     all_years = extract_years_from_dfs([df_func_raw, df_epic_raw, df_story_raw])
     year_options = ["Todos"] + [str(y) for y in all_years]
 
-    # --- Filtros de topo: Tribo e Ano ---
+    # ---------- Filtros de topo ----------
     c1, c2, c3 = st.columns([0.35, 0.3, 0.35])
     with c1:
         sel_project_name = st.selectbox(
             "Tribo (Projeto)",
             options=["Todos"] + project_names,
-            index=0
+            index=0,
         )
     with c2:
-        sel_year = st.selectbox("Ano", options=year_options, index=0)
+        sel_year = st.selectbox("Ano (criação da issue)", options=year_options, index=0)
     with c3:
         dt = read_last_update(KPI_LASTUPDATE)
         if dt:
@@ -153,22 +211,41 @@ def pagina_dashboard_kpi():
     with c1:
         st.caption("Clique em um card abaixo para trocar o gráfico do KPI.")
 
-    # --- Helpers de filtro de tribo/ano ---
-    def project_key_selected():
+    # ---------- Helpers de filtro ----------
+    def project_key_selected() -> str:
         return name_to_key.get(sel_project_name, sel_project_name)
 
-    # Issues (projeto + ano, usando ano de criação de story/epic/func)
     def apply_project_issues(df: pd.DataFrame) -> pd.DataFrame:
         if df.empty:
             return df
         if sel_project_name != "Todos":
             pk = project_key_selected()
-            df = df[df["projectKey"].astype(str) == str(pk)].copy()
-        return apply_year_filter(df, sel_year)
+            if "projectKey" in df.columns:
+                df = df[df["projectKey"].astype(str) == str(pk)].copy()
+        return df
 
-    df_func_f  = apply_project_issues(df_func)
-    df_epic_f  = apply_project_issues(df_epic)
-    df_story_f = apply_project_issues(df_story)
+    def apply_project_testcases(df: pd.DataFrame) -> pd.DataFrame:
+        """Filtra test cases por tribo (coluna de projeto) se existir."""
+        if df.empty:
+            return df
+        if sel_project_name != "Todos":
+            pk = project_key_selected()
+            # tenta achar coluna de projeto
+            candidates = ["projectKey", "project key", "project.key", "project"]
+            cols_norm = {str(c).strip().lower(): c for c in df.columns}
+            col_proj = None
+            for cand in candidates:
+                if cand.lower() in cols_norm:
+                    col_proj = cols_norm[cand.lower()]
+                    break
+            if col_proj:
+                df = df[df[col_proj].astype(str).str.upper() == str(pk).upper()].copy()
+        return df
+
+    # Issues (projeto + ano)
+    df_func_f  = apply_year_filter(apply_project_issues(df_func), sel_year)
+    df_epic_f  = apply_year_filter(apply_project_issues(df_epic), sel_year)
+    df_story_f = apply_year_filter(apply_project_issues(df_story), sel_year)
 
     # Bugs/Sub-bugs (projeto + ano)
     df_bug_f    = apply_year_filter(apply_project_bugs(df_bug, project_key_selected()), sel_year)
@@ -186,22 +263,29 @@ def pagina_dashboard_kpi():
 
     df_ze_f = executions_filtered_by_project(df_ze)
 
-    # Conjunto de issues (Func + Story + Epic) pós filtro
-    base_issues_sel = pd.concat([df_func_f, df_story_f, df_epic_f], ignore_index=True)
-    issue_ids_sel = set(
-        int(x) for x in base_issues_sel["id"].dropna().astype(int).tolist()
-    ) if not base_issues_sel.empty else set()
+    # Test Cases (projeto + ano) – importante para o % Total Coverage
+    df_zc_f = apply_year_filter(apply_project_testcases(df_zc_raw), sel_year)
 
-    # ---------- KPIs (atuais) ----------
-    kpi_coverage = kpi_coverage_now(base_issues_sel, linked_issue_ids)
-    kpi_test_avg = kpi_test_avg_per_issue_now(base_issues_sel, df_zc)
-    kpi_auto_runs = kpi_auto_runs_now(df_ze_f)
-    kpi_auto_reg  = kpi_auto_reg_now(df_zc, df_ze_f, issue_ids_sel)
-    kpi_test_reg  = kpi_test_reg_now(df_zc, issue_ids_sel)
-    kpi_negative  = kpi_negative_now(df_zc, issue_ids_sel)
-    kpi_bug_days_ = avg_bug_days(df_bug_f, df_subbug_f)
+    # Base de issues combinada
+    base_issues_sel = pd.concat(
+        [df_func_f, df_story_f, df_epic_f],
+        ignore_index=True,
+    )
 
-    # ---------- Targets/visual ----------
+    issue_ids_sel = _safe_issue_ids(base_issues_sel)
+
+    # ---------- KPIs de nível atual ----------
+    # Aqui usamos o novo cálculo de % Total Coverage
+    kpi_coverage = _compute_total_coverage(df_story_f, df_epic_f, df_func_f, df_zc_f)
+
+    kpi_test_avg = kpi_test_avg_per_issue_now(base_issues_sel, df_zc_f)
+    kpi_auto_runs_val = kpi_auto_runs_now(df_ze_f)
+    kpi_auto_reg_val  = kpi_auto_reg_now(df_zc_f, df_ze_f, issue_ids_sel)
+    kpi_test_reg_val  = kpi_test_reg_now(df_zc_f, issue_ids_sel)
+    kpi_negative_val  = kpi_negative_now(df_zc_f, issue_ids_sel)
+    kpi_bug_days_val  = avg_bug_days(df_bug_f, df_subbug_f)
+
+    # ---------- Targets / cores ----------
     def resolve_project_for_target():
         return "*" if sel_project_name == "Todos" else project_key_selected()
 
@@ -258,44 +342,44 @@ def pagina_dashboard_kpi():
                 return "kpi-ok"
 
     KPI_DEFS = {
-        "coverage":  {
+        "coverage": {
             "title": "% Total Coverage",
-            "value": _fmt_with_target("coverage",  kpi_coverage, True)
+            "value": _fmt_with_target("coverage", kpi_coverage, True),
         },
-        "test_avg":  {
+        "test_avg": {
             "title": "Test AVG per issue",
-            "value": _fmt_with_target("test_avg",  kpi_test_avg, False)
+            "value": _fmt_with_target("test_avg", kpi_test_avg, False),
         },
-        "auto_reg":  {
+        "auto_reg": {
             "title": "% Automated Regression",
-            "value": _fmt_with_target("auto_reg",  kpi_auto_reg, True)
+            "value": _fmt_with_target("auto_reg", kpi_auto_reg_val, True),
         },
         "auto_runs": {
             "title": "% Automated Runs",
-            "value": _fmt_with_target("auto_runs", kpi_auto_runs, True)
+            "value": _fmt_with_target("auto_runs", kpi_auto_runs_val, True),
         },
-        "test_reg":  {
+        "test_reg": {
             "title": "% Test Regression",
-            "value": _fmt_with_target("test_reg",  kpi_test_reg, True)
+            "value": _fmt_with_target("test_reg", kpi_test_reg_val, True),
         },
-        "negative":  {
+        "negative": {
             "title": "% Negative Test",
-            "value": _fmt_with_target("negative",  kpi_negative, True)
+            "value": _fmt_with_target("negative", kpi_negative_val, True),
         },
-        "bug_days":  {
+        "bug_days": {
             "title": "AVG days resolution Bug",
-            "value": _fmt_with_target("bug_days",  kpi_bug_days_, False)
+            "value": _fmt_with_target("bug_days", kpi_bug_days_val, False),
         },
     }
 
     KPI_CLASS = {
         "coverage":  _kpi_state_class("coverage",  kpi_coverage, True),
         "test_avg":  _kpi_state_class("test_avg",  kpi_test_avg, False),
-        "auto_reg":  _kpi_state_class("auto_reg",  kpi_auto_reg, True),
-        "auto_runs": _kpi_state_class("auto_runs", kpi_auto_runs, True),
-        "test_reg":  _kpi_state_class("test_reg",  kpi_test_reg, True),
-        "negative":  _kpi_state_class("negative",  kpi_negative, True),
-        "bug_days":  _kpi_state_class("bug_days",  kpi_bug_days_, False),
+        "auto_reg":  _kpi_state_class("auto_reg",  kpi_auto_reg_val, True),
+        "auto_runs": _kpi_state_class("auto_runs", kpi_auto_runs_val, True),
+        "test_reg":  _kpi_state_class("test_reg",  kpi_test_reg_val, True),
+        "negative":  _kpi_state_class("negative",  kpi_negative_val, True),
+        "bug_days":  _kpi_state_class("bug_days",  kpi_bug_days_val, False),
     }
 
     if "kpi_selected" not in st.session_state:
@@ -312,7 +396,7 @@ def pagina_dashboard_kpi():
             clicked = st.button(
                 f"{label}\n{value}",
                 key=btn_key,
-                use_container_width=True
+                use_container_width=True,
             )
             st.write("</div>", unsafe_allow_html=True)
         if clicked:
@@ -330,31 +414,27 @@ def pagina_dashboard_kpi():
     st.markdown("---")
 
     # ---------- Série mensal do KPI selecionado ----------
-    df_func_all  = df_func_f.copy()
-    df_epic_all  = df_epic_f.copy()
-    df_story_all = df_story_f.copy()
-
-    base_issues_all = pd.concat(
-        [df_func_all, df_story_all, df_epic_all],
-        ignore_index=True
-    )
-
     sel_key = st.session_state["kpi_selected"]
     st.markdown(f"#### {KPI_DEFS[sel_key]['title']}")
 
+    # Para as séries mensais, mantemos as funções do módulo metrics
     if sel_key == "coverage":
-        df_series = monthly_series_coverage(base_issues_all, linked_issue_ids)
+        df_series = monthly_series_coverage(base_issues_sel, extract_linked_issue_ids(df_zc_f, (
+            "links.issues.issueId",
+            "links.issues.issue id",
+            "links.issues.issue idnbsp",
+        )))
     elif sel_key == "test_avg":
-        df_series = monthly_series_test_avg(base_issues_all, df_zc)
+        df_series = monthly_series_test_avg(base_issues_sel, df_zc_f)
     elif sel_key == "auto_runs":
         df_series = monthly_series_auto_runs(df_ze_f)
     elif sel_key == "auto_reg":
-        df_series = monthly_series_auto_reg(df_zc, df_ze_f, issue_ids_sel)
+        df_series = monthly_series_auto_reg(df_zc_f, df_ze_f, issue_ids_sel)
     elif sel_key == "test_reg":
-        df_series = monthly_series_test_reg(df_zc, issue_ids_sel)
+        df_series = monthly_series_test_reg(df_zc_f, issue_ids_sel)
     elif sel_key == "negative":
-        df_series = monthly_series_negative(df_zc, issue_ids_sel)
-    else:  # bug_days não tem série
+        df_series = monthly_series_negative(df_zc_f, issue_ids_sel)
+    else:  # bug_days não tem série mensal aqui
         df_series = pd.DataFrame(columns=["month", "value"])
 
     if df_series.empty:
@@ -364,13 +444,17 @@ def pagina_dashboard_kpi():
     try:
         df_series["month_dt"] = pd.to_datetime(
             df_series["month"] + "-01",
-            errors="coerce"
+            errors="coerce",
         )
         df_series = df_series.sort_values("month_dt")
     except Exception:
         pass
 
-    y_title = "%" if sel_key in {"coverage", "auto_reg", "auto_runs", "test_reg", "negative"} else "Valor"
+    y_title = "%"
+    if sel_key == "test_avg":
+        y_title = "Tests / Issue"
+    if sel_key == "bug_days":
+        y_title = "Dias"
 
     chart = (
         alt.Chart(df_series)
@@ -386,6 +470,6 @@ def pagina_dashboard_kpi():
     st.altair_chart(chart, use_container_width=True)
 
 
-# Debug local
+# Execução direta local (debug)
 if __name__ == "__main__":
     pagina_dashboard_kpi()

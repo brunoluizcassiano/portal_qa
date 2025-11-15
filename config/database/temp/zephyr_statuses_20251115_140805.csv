@@ -1,0 +1,15 @@
+id,project.id,project.self,name,description,index,color,archived,default
+9946366,545598,https://api.zephyrscale.smartbear.com/v2/projects/545598,Not Executed,,0,#cfcfc4,False,True
+9946367,545598,https://api.zephyrscale.smartbear.com/v2/projects/545598,In Progress,,1,#f0ad4e,False,False
+9946368,545598,https://api.zephyrscale.smartbear.com/v2/projects/545598,Pass,,2,#3abb4b,False,False
+9946369,545598,https://api.zephyrscale.smartbear.com/v2/projects/545598,Fail,,3,#df2f36,False,False
+9946370,545598,https://api.zephyrscale.smartbear.com/v2/projects/545598,Blocked,,4,#4b88e7,False,False
+9946371,545598,https://api.zephyrscale.smartbear.com/v2/projects/545598,Not Executed,,0,#cfcfc4,False,True
+9946372,545598,https://api.zephyrscale.smartbear.com/v2/projects/545598,In Progress,,1,#f0ad4e,False,False
+9946373,545598,https://api.zephyrscale.smartbear.com/v2/projects/545598,Done,,2,#3abb4b,False,False
+9946374,545598,https://api.zephyrscale.smartbear.com/v2/projects/545598,Draft,,0,#f0ad4e,False,True
+9946375,545598,https://api.zephyrscale.smartbear.com/v2/projects/545598,Deprecated,,1,#4b88e7,False,False
+9946376,545598,https://api.zephyrscale.smartbear.com/v2/projects/545598,Approved,,2,#3abb4b,False,False
+9946377,545598,https://api.zephyrscale.smartbear.com/v2/projects/545598,Draft,,0,#f0ad4e,False,True
+9946378,545598,https://api.zephyrscale.smartbear.com/v2/projects/545598,Deprecated,,1,#4b88e7,False,False
+9946379,545598,https://api.zephyrscale.smartbear.com/v2/projects/545598,Approved,,2,#3abb4b,False,False

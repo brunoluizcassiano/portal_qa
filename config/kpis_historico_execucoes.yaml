@@ -257,3 +257,10 @@
   mensagem: '{"ok":true,"source":"zephyr","projects":["KAN"],"testcases":4,"executions":0,"testcycles":0,"statuses":14,"saved":["config/database/temp/zephyr_testcases_20251112_140828.csv","config/database/temp/zephyr_testexecutions_20251112_140828.csv","config/database/temp/zephyr_testcycles_20251112_140828.csv","config/database/temp/zephyr_statuses_20251112_140828.csv"],"latest":["config/database/zephyr_testcases_latest.csv","config/database/zephyr_testexecutions_latest.csv","config/database/zephyr_testcycles_latest.csv","config/database/zephyr_statuses_latest.csv"],"concurrency":{"max_workers":12,"page_size":100,"pause_every":200,"pause_secs":0.2},"filters_used":{"tc_createdAfter":"2025-01-01","tc_createdBefore":null,"exec_actualEndAfter":"2025-01-01T00:00:00Z","exec_actualEndBefore":null,"exec_testCase":null,"exec_includeStepLinks":false,"exec_onlyLastExecutions":false,"exec_versionId":null}}'
   endpoint: /run_zephyr/
   api_url: http://127.0.0.1:8000
+- fluxo_name: extracao_zephyr_diaria
+  horario: '14:09'
+  data: 15/11/2025
+  status: Sucesso
+  mensagem: '{"ok":true,"source":"zephyr","projects":["KAN"],"testcases":4,"executions":0,"testcycles":0,"statuses":14,"saved":["config/database/temp/zephyr_testcases_20251115_140805.csv","config/database/temp/zephyr_testexecutions_20251115_140805.csv","config/database/temp/zephyr_testcycles_20251115_140805.csv","config/database/temp/zephyr_statuses_20251115_140805.csv"],"latest":["config/database/zephyr_testcases_latest.csv","config/database/zephyr_testexecutions_latest.csv","config/database/zephyr_testcycles_latest.csv","config/database/zephyr_statuses_latest.csv"],"concurrency":{"max_workers":12,"page_size":100,"pause_every":200,"pause_secs":0.2},"filters_used":{"tc_createdAfter":"2025-01-01","tc_createdBefore":null,"exec_actualEndAfter":"2025-01-01T00:00:00Z","exec_actualEndBefore":null,"exec_testCase":null,"exec_includeStepLinks":false,"exec_onlyLastExecutions":false,"exec_versionId":null}}'
+  endpoint: /run_zephyr/
+  api_url: http://127.0.0.1:8000
