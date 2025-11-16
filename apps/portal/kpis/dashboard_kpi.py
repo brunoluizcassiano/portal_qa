@@ -338,7 +338,8 @@ def pagina_dashboard_kpi():
 
     kpi_auto_runs_val = kpi_auto_runs_now(df_ze_f)
     kpi_auto_reg_val  = kpi_auto_reg_now(df_zc_f, df_ze_f, issue_ids_sel)
-    kpi_test_reg_val  = kpi_test_reg_now(df_zc_f, issue_ids_sel)
+    # kpi_test_reg_val  = kpi_test_reg_now(df_zc_f, issue_ids_sel)
+    kpi_test_reg_val  = kpi_test_reg_now(df_zc_f)
     kpi_negative_val  = kpi_negative_now(df_zc_f, issue_ids_sel)
     kpi_bug_days_val  = avg_bug_days(df_bug_f, df_subbug_f)
 

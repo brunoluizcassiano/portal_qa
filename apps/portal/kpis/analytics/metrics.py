@@ -66,23 +66,63 @@ def kpi_auto_runs_now(df_ze_filtered: pd.DataFrame) -> float:
     is_auto = tmp["automated"].astype(str).str.lower().isin(["1", "true", "yes"])
     return round(pct(int(is_auto.sum()), len(tmp)), 2)
 
-def kpi_test_reg_now(df_zc: pd.DataFrame, issue_ids_sel: set[int] | None) -> float:
+# def kpi_test_reg_now(df_zc: pd.DataFrame, issue_ids_sel: set[int] | None) -> float:
+#     if df_zc.empty:
+#         return 0.0
+#     tcz = df_zc.copy()
+#     li_col = "links.issues.issueId" if "links.issues.issueId" in tcz.columns else None
+#     if issue_ids_sel and li_col:
+#         mask_link = tcz[li_col].apply(lambda x: any(i in issue_ids_sel for i in _split_ids_to_ints(x)))
+#         tcz = tcz[mask_link]
+#     if tcz.empty:
+#         return 0.0
+#     tc_type_col = next((c for c in [
+#         "customFields.Test Type", "customFields.TestType", "customFields.Test type", "customFields.Test_Type"
+#     ] if c in tcz.columns), None)
+#     if tc_type_col is None:
+#         return 0.0
+#     den = len(tcz)
+#     num = int(tcz[tc_type_col].astype(str).str.lower().str.contains("regress").sum())
+#     return round(pct(num, den), 2)
+def kpi_test_reg_now(df_zc: pd.DataFrame) -> float:
+    """
+    % Test Regression:
+    - Numerador: quantidade de test cases cujo Test Type contém 'regress'
+    - Denominador: total de test cases no df_zc (já filtrado por tribo/ano fora daqui)
+    """
     if df_zc.empty:
         return 0.0
-    tcz = df_zc.copy()
-    li_col = "links.issues.issueId" if "links.issues.issueId" in tcz.columns else None
-    if issue_ids_sel and li_col:
-        mask_link = tcz[li_col].apply(lambda x: any(i in issue_ids_sel for i in _split_ids_to_ints(x)))
-        tcz = tcz[mask_link]
-    if tcz.empty:
-        return 0.0
-    tc_type_col = next((c for c in [
-        "customFields.Test Type", "customFields.TestType", "customFields.Test type", "customFields.Test_Type"
-    ] if c in tcz.columns), None)
+
+    # Descobre a coluna de "Test Type"
+    tc_type_col = next(
+        (
+            c
+            for c in [
+                "customFields.Test Type",
+                "customFields.TestType",
+                "customFields.Test type",
+                "customFields.Test_Type",
+                "Test Type",
+            ]
+            if c in df_zc.columns
+        ),
+        None,
+    )
     if tc_type_col is None:
         return 0.0
-    den = len(tcz)
-    num = int(tcz[tc_type_col].astype(str).str.lower().str.contains("regress").sum())
+
+    den = len(df_zc)
+    if den == 0:
+        return 0.0
+
+    num = int(
+        df_zc[tc_type_col]
+        .astype(str)
+        .str.lower()
+        .str.contains("regress", na=False)
+        .sum()
+    )
+
     return round(pct(num, den), 2)
 
 def kpi_auto_reg_now(df_zc: pd.DataFrame, df_ze_filtered: pd.DataFrame, issue_ids_sel: set[int] | None) -> float:
