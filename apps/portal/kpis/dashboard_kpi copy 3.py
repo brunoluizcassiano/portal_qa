@@ -23,7 +23,7 @@ from .analytics.transformers import (
 )
 from .analytics.metrics import (
     get_target,
-    kpi_test_avg_per_issue_now,   # continua importado (não usaremos mais aqui)
+    kpi_test_avg_per_issue_now,
     kpi_auto_runs_now,
     kpi_auto_reg_now,
     kpi_test_reg_now,
@@ -84,61 +84,6 @@ def _compute_total_coverage(df_story_f: pd.DataFrame,
     num_cov = len(covered_total_ids)
 
     return (num_cov / denom) * 100.0
-
-
-def _compute_test_avg_per_issue(df_story_f: pd.DataFrame,
-                                df_epic_f: pd.DataFrame,
-                                df_func_f: pd.DataFrame,
-                                df_zc_f: pd.DataFrame) -> float:
-    """
-    Test AVG per issue:
-      - denominador = issues (Story + Epic + Func) que têm pelo menos 1 teste vinculado
-      - numerador   = quantidade de test cases distintos (df_zc_f) no contexto filtrado
-    """
-
-    # Conjunto de issues consideradas (mesmo universo do %Total Coverage)
-    story_ids = _safe_issue_ids(df_story_f)
-    epic_ids  = _safe_issue_ids(df_epic_f)
-    func_ids  = _safe_issue_ids(df_func_f)
-    all_issue_ids = story_ids | epic_ids | func_ids
-
-    if not all_issue_ids or df_zc_f is None or df_zc_f.empty:
-        return 0.0
-
-    # Issues que realmente têm pelo menos 1 teste vinculado
-    covered_ids = extract_linked_issue_ids(
-        df_zc_f,
-        (
-            "links.issues.issueId",
-            "links.issues.issue id",
-            "links.issues.issue idnbsp",
-        ),
-    )
-    issues_with_tests = all_issue_ids & covered_ids
-    n_issues_with_tests = len(issues_with_tests)
-    if n_issues_with_tests == 0:
-        return 0.0
-
-    # Numerador: total de test cases distintos deste contexto
-    # Preferimos 'testcasekey'; se não existir, caímos para 'key'; se não, para 'id'.
-    col_tc = None
-    for cand in ["testcasekey", "testCaseKey", "key", "id"]:
-        if cand in df_zc_f.columns:
-            col_tc = cand
-            break
-
-    if not col_tc:
-        # fallback: conta linhas
-        n_tests = int(len(df_zc_f.index))
-    else:
-        n_tests = int(
-            df_zc_f[col_tc]
-            .dropna()
-            .astype(str)
-            .nunique()
-        )
-
-    return float(n_tests) / float(n_issues_with_tests)
 
 
 def pagina_dashboard_kpi():
@@ -318,7 +263,7 @@ def pagina_dashboard_kpi():
 
     df_ze_f = executions_filtered_by_project(df_ze)
 
-    # Test Cases (projeto + ano) – importante para o % Total Coverage e Test AVG
+    # Test Cases (projeto + ano) – importante para o % Total Coverage
     df_zc_f = apply_year_filter(apply_project_testcases(df_zc_raw), sel_year)
 
     # Base de issues combinada
@@ -330,12 +275,10 @@ def pagina_dashboard_kpi():
     issue_ids_sel = _safe_issue_ids(base_issues_sel)
 
     # ---------- KPIs de nível atual ----------
-    # % Total Coverage
+    # Aqui usamos o novo cálculo de % Total Coverage
     kpi_coverage = _compute_total_coverage(df_story_f, df_epic_f, df_func_f, df_zc_f)
 
-    # Test AVG per issue – agora com a lógica que combinamos
-    kpi_test_avg = _compute_test_avg_per_issue(df_story_f, df_epic_f, df_func_f, df_zc_f)
-
+    kpi_test_avg = kpi_test_avg_per_issue_now(base_issues_sel, df_zc_f)
     kpi_auto_runs_val = kpi_auto_runs_now(df_ze_f)
     kpi_auto_reg_val  = kpi_auto_reg_now(df_zc_f, df_ze_f, issue_ids_sel)
     kpi_test_reg_val  = kpi_test_reg_now(df_zc_f, issue_ids_sel)
@@ -476,17 +419,11 @@ def pagina_dashboard_kpi():
 
     # Para as séries mensais, mantemos as funções do módulo metrics
     if sel_key == "coverage":
-        df_series = monthly_series_coverage(
-            base_issues_sel,
-            extract_linked_issue_ids(
-                df_zc_f,
-                (
-                    "links.issues.issueId",
-                    "links.issues.issue id",
-                    "links.issues.issue idnbsp",
-                ),
-            ),
-        )
+        df_series = monthly_series_coverage(base_issues_sel, extract_linked_issue_ids(df_zc_f, (
+            "links.issues.issueId",
+            "links.issues.issue id",
+            "links.issues.issue idnbsp",
+        )))
     elif sel_key == "test_avg":
         df_series = monthly_series_test_avg(base_issues_sel, df_zc_f)
     elif sel_key == "auto_runs":
