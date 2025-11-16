@@ -801,35 +801,51 @@ def pagina_dashboard_coverage_and_run():
     else:
         epic_closed = 0
 
-    # -----------------------------
-    # Test average per issue (ajustado)
-    # -----------------------------
-    # Qtd de issues (story+epic+func) para mostrar nos cards:
+    # Test average per issue (Stories + Epics + Func)
     n_story = int(f_story.shape[0])
     n_epic = int(f_epic.shape[0])
     n_func = int(f_func.shape[0]) if not f_func.empty else 0
 
-    # Agora o cálculo correto:
-    # - Considera só issues (story+epic+func) que têm pelo menos 1 test vinculado
-    # - Usa os links já extraídos em links_by_id (tc_key x issue_id)
-    if all_issue_ids and not links_by_id.empty:
-        df_links_valid = links_by_id[links_by_id["issue_id"].isin(list(all_issue_ids))].copy()
+    n_issues_for_avg = n_story + n_epic + n_func
+    # if n_issues_for_avg > 0:
+    #     test_avg = total_tests / n_issues_for_avg
+    # else:
+    #     test_avg = 0.0
+        # Test average per issue (Stories + Epics + Func que têm pelo menos 1 teste)
+    # Mesma lógica do dashboard_kpi:
+    #  - denominador: issues com pelo menos 1 teste vinculado
+    #  - numerador : quantidade de test cases distintos no contexto filtrado
 
-        if df_links_valid.empty:
-            test_avg = 0.0
-        else:
-            # Para cada issue_id, quantos test cases distintos cobrem aquela issue
-            grp = df_links_valid.groupby("issue_id")["tc_key"].nunique()
-            # Só issues com pelo menos 1 teste (na prática todas de grp já têm >=1)
-            denom = (grp > 0).sum()
+    if all_issue_ids and covered_ids_all and not f_zc.empty:
+        # Issues que realmente têm pelo menos 1 teste
+        issues_with_tests = all_issue_ids & covered_ids_all
+        n_issues_with_tests = len(issues_with_tests)
 
-            if denom > 0:
-                total_tc_for_avg = int(grp.sum())
-                test_avg = float(total_tc_for_avg) / float(denom)
+        if n_issues_with_tests > 0:
+            # Descobre a coluna de chave do test case
+            tc_col = None
+            for cand in ["testcasekey", "testCaseKey", "key", "id"]:
+                if cand in f_zc.columns:
+                    tc_col = cand
+                    break
+
+            if tc_col:
+                n_tests = (
+                    f_zc[tc_col]
+                    .dropna()
+                    .astype(str)
+                    .nunique()
+                )
             else:
-                test_avg = 0.0
+                # fallback: conta linhas
+                n_tests = len(f_zc)
+
+            test_avg = float(n_tests) / float(n_issues_with_tests)
+        else:
+            test_avg = 0.0
     else:
         test_avg = 0.0
+
 
     # ----------------------------------------------------------------
     # CARDS – 5 linhas x 4 cards
