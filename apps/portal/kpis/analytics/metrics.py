@@ -168,55 +168,62 @@ def kpi_test_reg_now(df_zc: pd.DataFrame) -> float:
 #     num = len(automated_reg_ids)
 #     return round(pct(num, den), 2)
 
-def kpi_auto_reg_now(df_zc: pd.DataFrame) -> float:
+def kpi_auto_reg_now(df_zc_f, df_ze_f, issue_ids_sel):
     """
-    % Automated Regression:
-    - Denominador: total de test cases regressivos
-    - Numerador: test cases regressivos que são AUTOMATIZADOS
+    Calcula o % Automated Regression considerando APENAS testes regressivos.
+
+    Regras:
+    - Considera apenas test cases ligados às issues filtradas (issue_ids_sel).
+    - Considera test cases cujo tipo de teste é regressivo
+      (mesma coluna usada no gráfico "Regressive x Others (Test type)").
+    - Um teste é considerado "automatizado em regressivo" se:
+        * estiver marcado como automatizado no cadastro do test case
+          (mesma coluna usada no gráfico de Automation in regressive), OU
+        * tiver pelo menos uma execução com status "Pass".
+
+    Retorna:
+        (percentual, qtd_automatizados, qtd_manualmente, total_regressivos)
     """
 
-    if df_zc.empty:
-        return 0.0
+    # 1) Filtra somente test cases ligados às issues selecionadas
+    df_tc_sel = df_zc_f[df_zc_f["issue_key"].isin(issue_ids_sel)].copy()
 
-    # --- Detecta coluna de Test Class (mesma usada no gráfico) ---
-    tc_class_col = next(
-        (
-            c for c in [
-                "customFields.Test Class", "customFields.TestClass",
-                "customFields.Test class", "customFields.Test_Class",
-                "Test Class"
-            ]
-            if c in df_zc.columns
-        ),
-        None
-    )
-    if tc_class_col is None:
-        return 0.0
+    # 2) Mantém apenas os testes REGRESSIVOS
+    #    👉 aqui use a MESMA coluna/critério que você usa no gráfico
+    #    "Regressive x Others (Test type)" da tela Coverage and Run.
+    mask_reg = df_tc_sel["test_type"].str.contains("regress", case=False, na=False)
+    df_reg = df_tc_sel[mask_reg]
 
-    # --- Detecta coluna de execução automatizada (Automated Test) ---
-    automated_cols = [
-        "ExecutionType", "executionType",
-        "execution_type",
-        "customFields.Automation", "customFields.IsAutomated",
-        "IsAutomated"
+    # IDs dos test cases regressivos
+    reg_tc_ids = set(df_reg["testcase_key"].dropna().astype(str))
+
+    if not reg_tc_ids:
+        # Não há regressivos nesse recorte
+        return 0.0, 0, 0, 0
+
+    # 3) Testes regressivos marcados como AUTOMATED no cadastro
+    #    👉 use aqui a mesma coluna do gráfico "Automation in regressive"
+    mask_auto = df_reg["automation_status"].str.contains("auto", case=False, na=False)
+    auto_ids = set(df_reg.loc[mask_auto, "testcase_key"].dropna().astype(str))
+
+    # 4) Testes regressivos que já tiveram pelo menos uma execução PASS
+    df_exec_reg = df_ze_f[
+        df_ze_f["testcase_key"].isin(reg_tc_ids)
+        & df_ze_f["status"].str.lower().eq("pass")
     ]
-    auto_col = next((c for c in automated_cols if c in df_zc.columns), None)
-    if auto_col is None:
-        return 0.0
+    pass_ids = set(df_exec_reg["testcase_key"].dropna().astype(str))
 
-    # --- Seleciona testes regressivos ---
-    df_reg = df_zc[df_zc[tc_class_col].astype(str).str.lower().str.contains("regression", na=False)]
-    if df_reg.empty:
-        return 0.0
+    # 5) Conjunto final de "automatizados em regressivo"
+    #    (marcados como auto OU com execução PASS) ∩ regressivos
+    auto_reg_ids = (auto_ids | pass_ids) & reg_tc_ids
 
-    total_regression = len(df_reg)
+    num_auto = len(auto_reg_ids)       # ex: 268
+    total_reg = len(reg_tc_ids)        # ex: 352
+    pct_auto = pct(num_auto, total_reg)  # 268 / 352 * 100 = 76.14
 
-    # --- Seleciona apenas regressivos automatizados ---
-    df_auto_reg = df_reg[df_reg[auto_col].astype(str).str.lower().isin(["automated", "yes", "true", "1"])]
-    automated_regression = len(df_auto_reg)
+    num_manual = total_reg - num_auto  # ex: 84
 
-    return round(pct(automated_regression, total_regression), 2)
-
+    return pct_auto, num_auto, num_manual, total_reg
 
 # def kpi_negative_now(df_zc: pd.DataFrame, issue_ids_sel: set[int] | None) -> float:
 #     if df_zc.empty:
