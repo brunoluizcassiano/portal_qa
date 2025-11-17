@@ -337,7 +337,8 @@ def pagina_dashboard_kpi():
     kpi_test_avg = _compute_test_avg_per_issue(df_story_f, df_epic_f, df_func_f, df_zc_f)
 
     kpi_auto_runs_val = kpi_auto_runs_now(df_ze_f)
-    kpi_auto_reg_val  = kpi_auto_reg_now(df_zc_f, df_ze_f, issue_ids_sel)
+    # kpi_auto_reg_val  = kpi_auto_reg_now(df_zc_f, df_ze_f, issue_ids_sel)
+    kpi_auto_reg_val  = kpi_auto_reg_now(df_zc_f)
     # kpi_test_reg_val  = kpi_test_reg_now(df_zc_f, issue_ids_sel)
     kpi_test_reg_val  = kpi_test_reg_now(df_zc_f)
     # kpi_negative_val  = kpi_negative_now(df_zc_f, issue_ids_sel)

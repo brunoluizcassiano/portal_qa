@@ -168,78 +168,72 @@ def kpi_test_reg_now(df_zc: pd.DataFrame) -> float:
 #     num = len(automated_reg_ids)
 #     return round(pct(num, den), 2)
 
-def kpi_auto_reg_now(df_zc: pd.DataFrame,
-                     df_ze_filtered: pd.DataFrame,
-                     issue_ids_sel: set[int] | None) -> float:
+def kpi_auto_reg_now(df_zc: pd.DataFrame) -> float:
+    """
+    % Automated Regression:
+    - Denominador: quantidade de test cases cujo Test Type contém "regress"
+                   (df_zc já deve vir filtrado por tribo e ano)
+    - Numerador: dentre esses, quantos possuem Automation Status = "Automated"
+    """
     if df_zc.empty:
         return 0.0
 
-    tc_type_col = next((c for c in [
-        "customFields.Test Type", "customFields.TestType",
-        "customFields.Test type", "customFields.Test_Type"
-    ] if c in df_zc.columns), None)
-
-    auto_col = next((c for c in [
-        "customFields.Automation Status",
-        "customFields.AutomationStatus",
-        "automationStatus"
-    ] if c in df_zc.columns), None)
-
-    if tc_type_col is None:
-        return 0.0
-
-    tcz = df_zc.copy()
-
-    # Filtra pelos issues selecionados (story/epic/func) usando os links
-    if issue_ids_sel:
-        li_col = "links.issues.issueId" if "links.issues.issueId" in tcz.columns else None
-        if li_col:
-            mask_link = tcz[li_col].apply(
-                lambda x: any(i in issue_ids_sel for i in _split_ids_to_ints(x))
-            )
-            tcz = tcz[mask_link]
-
-    # Só test cases regressivos
-    tcz = tcz[tcz[tc_type_col].astype(str)
-              .str.lower()
-              .str.contains("regress")].copy()
-    if tcz.empty:
-        return 0.0
-
-    reg_tc_ids = set(
-        int(x) for x in
-        pd.to_numeric(tcz.get("id"), errors="coerce").dropna().astype(int).tolist()
+    # coluna de Test Type (mesma lógica do kpi_test_reg_now)
+    tc_type_col = next(
+        (
+            c
+            for c in [
+                "customFields.Test Type",
+                "customFields.TestType",
+                "customFields.Test type",
+                "customFields.Test_Type",
+                "Test Type",
+            ]
+            if c in df_zc.columns
+        ),
+        None,
     )
-    den = len(reg_tc_ids)
+
+    # coluna de Automation Status
+    auto_col = next(
+        (
+            c
+            for c in [
+                "customFields.Automation Status",
+                "customFields.AutomationStatus",
+                "automationStatus",
+                "Automation Status",
+            ]
+            if c in df_zc.columns
+        ),
+        None,
+    )
+
+    if tc_type_col is None or auto_col is None:
+        # sem coluna de tipo ou de automação não dá pra calcular
+        return 0.0
+
+    # Só testes de regressão
+    reg_mask = (
+        df_zc[tc_type_col]
+        .astype(str)
+        .str.lower()
+        .str.contains("regress", na=False)
+    )
+    reg_df = df_zc.loc[reg_mask].copy()
+    den = len(reg_df)
     if den == 0:
         return 0.0
 
-    # Automatizados pelo campo de automação
-    auto_ids = set()
-    if auto_col:
-        auto_mask = tcz[auto_col].astype(str).str.strip().str.lower().eq("automated")
-        auto_ids = set(
-            pd.to_numeric(tcz.loc[auto_mask, "id"], errors="coerce")
-            .dropna().astype(int).tolist()
-        )
-
-    # Também considera regressivo “automatizado” se tem execução PASS
-    pass_ids = set()
-    if not df_ze_filtered.empty and "testCase.id" in df_ze_filtered.columns:
-        pass_mask = pd.Series(False, index=df_ze_filtered.index)
-        if "status" in df_ze_filtered.columns:
-            pass_mask |= df_ze_filtered["status"].astype(str)\
-                         .str.lower().str.contains("pass")
-        if "testExecutionStatus.self" in df_ze_filtered.columns:
-            pass_mask |= df_ze_filtered["testExecutionStatus.self"].astype(str)\
-                         .str.lower().str.contains("pass")
-        pass_ids = set(
-            pd.to_numeric(df_ze_filtered.loc[pass_mask, "testCase.id"],
-                          errors="coerce").dropna().astype(int).tolist()
-        )
-
-    automated_reg_ids = (auto_ids | pass_ids) & reg_tc_ids
-    num = len(automated_reg_ids)
+    # Entre os regressivos, quais estão marcados como Automated?
+    auto_mask = (
+        reg_df[auto_col]
+        .astype(str)
+        .str.strip()
+        .str.lower()
+        .eq("automated")
+    )
+    num = int(auto_mask.sum())
 
     return round(pct(num, den), 2)
 
