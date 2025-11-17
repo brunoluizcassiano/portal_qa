@@ -189,23 +189,24 @@ def kpi_auto_reg_now(df_zc: pd.DataFrame, df_ze_filtered: pd.DataFrame, issue_id
 
 def kpi_negative_now(df_zc: pd.DataFrame) -> float:
     """
-    % Test Negative:
-    - Denominador: total de test cases no df_zc (já filtrado por tribo/ano fora daqui)
-    - Numerador: test cases cujo Test Type contém 'negative'
+    % Test Negative (KPI):
+    - Denominador: total de test cases em df_zc (já filtrado por tribo/ano fora daqui)
+    - Numerador: test cases cujo *Test Class* contém 'negative'
+      (mesma lógica do gráfico Positive x Negative (Test class))
     """
     if df_zc.empty:
         return 0.0
 
-    # Descobre a coluna de "Test Type"
+    # Descobre a coluna de "Test Class" (NÃO Test Type)
     tc_class_col = next(
         (
             c
             for c in [
-                "customFields.Test Class", 
-                "customFields.TestClass", 
-                "customFields.Test class", 
+                "customFields.Test Class",
+                "customFields.TestClass",
+                "customFields.Test class",
                 "customFields.Test_Class",
-                "Test_Class"
+                "Test Class",
             ]
             if c in df_zc.columns
         ),
