@@ -125,48 +125,98 @@ def kpi_test_reg_now(df_zc: pd.DataFrame) -> float:
 
     return round(pct(num, den), 2)
 
-def kpi_auto_reg_now(df_zc: pd.DataFrame, df_ze_filtered: pd.DataFrame, issue_ids_sel: set[int] | None) -> float:
+# def kpi_auto_reg_now(df_zc: pd.DataFrame, df_ze_filtered: pd.DataFrame, issue_ids_sel: set[int] | None) -> float:
+#     if df_zc.empty:
+#         return 0.0
+#     tc_type_col = next((c for c in [
+#         "customFields.Test Type", "customFields.TestType", "customFields.Test type", "customFields.Test_Type"
+#     ] if c in df_zc.columns), None)
+#     auto_col = next((c for c in [
+#         "customFields.Automation Status", "customFields.AutomationStatus", "automationStatus"
+#     ] if c in df_zc.columns), None)
+#     if tc_type_col is None:
+#         return 0.0
+#     tcz = df_zc.copy()
+#     if issue_ids_sel:
+#         li_col = "links.issues.issueId" if "links.issues.issueId" in tcz.columns else None
+#         if li_col:
+#             mask_link = tcz[li_col].apply(lambda x: any(i in issue_ids_sel for i in _split_ids_to_ints(x)))
+#             tcz = tcz[mask_link]
+#     tcz = tcz[tcz[tc_type_col].astype(str).str.lower().str.contains("regress")].copy()
+#     if tcz.empty:
+#         return 0.0
+#     reg_tc_ids = set(int(x) for x in pd.to_numeric(tcz.get("id"), errors="coerce").dropna().astype(int).tolist())
+#     den = len(reg_tc_ids)
+#     if den == 0:
+#         return 0.0
+
+#     auto_ids = set()
+#     if auto_col:
+#         auto_mask = tcz[auto_col].astype(str).str.strip().str.lower().eq("automated")
+#         auto_ids = set(pd.to_numeric(tcz.loc[auto_mask, "id"], errors="coerce").dropna().astype(int).tolist())
+
+#     pass_ids = set()
+#     if not df_ze_filtered.empty and "testCase.id" in df_ze_filtered.columns:
+#         pass_mask = pd.Series(False, index=df_ze_filtered.index)
+#         if "status" in df_ze_filtered.columns:
+#             pass_mask |= df_ze_filtered["status"].astype(str).str.lower().str.contains("pass")
+#         if "testExecutionStatus.self" in df_ze_filtered.columns:
+#             pass_mask |= df_ze_filtered["testExecutionStatus.self"].astype(str).str.lower().str.contains("pass")
+#         pass_ids = set(pd.to_numeric(df_ze_filtered.loc[pass_mask, "testCase.id"], errors="coerce").dropna().astype(int).tolist())
+
+#     automated_reg_ids = (auto_ids | pass_ids) & reg_tc_ids
+#     num = len(automated_reg_ids)
+#     return round(pct(num, den), 2)
+
+def kpi_auto_reg_now(df_zc: pd.DataFrame) -> float:
+    """
+    % Automated Regression:
+    - Denominador: total de test cases regressivos
+    - Numerador: test cases regressivos que são AUTOMATIZADOS
+    """
+
     if df_zc.empty:
         return 0.0
-    tc_type_col = next((c for c in [
-        "customFields.Test Type", "customFields.TestType", "customFields.Test type", "customFields.Test_Type"
-    ] if c in df_zc.columns), None)
-    auto_col = next((c for c in [
-        "customFields.Automation Status", "customFields.AutomationStatus", "automationStatus"
-    ] if c in df_zc.columns), None)
-    if tc_type_col is None:
-        return 0.0
-    tcz = df_zc.copy()
-    if issue_ids_sel:
-        li_col = "links.issues.issueId" if "links.issues.issueId" in tcz.columns else None
-        if li_col:
-            mask_link = tcz[li_col].apply(lambda x: any(i in issue_ids_sel for i in _split_ids_to_ints(x)))
-            tcz = tcz[mask_link]
-    tcz = tcz[tcz[tc_type_col].astype(str).str.lower().str.contains("regress")].copy()
-    if tcz.empty:
-        return 0.0
-    reg_tc_ids = set(int(x) for x in pd.to_numeric(tcz.get("id"), errors="coerce").dropna().astype(int).tolist())
-    den = len(reg_tc_ids)
-    if den == 0:
+
+    # --- Detecta coluna de Test Class (mesma usada no gráfico) ---
+    tc_class_col = next(
+        (
+            c for c in [
+                "customFields.Test Class", "customFields.TestClass",
+                "customFields.Test class", "customFields.Test_Class",
+                "Test Class"
+            ]
+            if c in df_zc.columns
+        ),
+        None
+    )
+    if tc_class_col is None:
         return 0.0
 
-    auto_ids = set()
-    if auto_col:
-        auto_mask = tcz[auto_col].astype(str).str.strip().str.lower().eq("automated")
-        auto_ids = set(pd.to_numeric(tcz.loc[auto_mask, "id"], errors="coerce").dropna().astype(int).tolist())
+    # --- Detecta coluna de execução automatizada (Automated Test) ---
+    automated_cols = [
+        "ExecutionType", "executionType",
+        "execution_type",
+        "customFields.Automation", "customFields.IsAutomated",
+        "IsAutomated"
+    ]
+    auto_col = next((c for c in automated_cols if c in df_zc.columns), None)
+    if auto_col is None:
+        return 0.0
 
-    pass_ids = set()
-    if not df_ze_filtered.empty and "testCase.id" in df_ze_filtered.columns:
-        pass_mask = pd.Series(False, index=df_ze_filtered.index)
-        if "status" in df_ze_filtered.columns:
-            pass_mask |= df_ze_filtered["status"].astype(str).str.lower().str.contains("pass")
-        if "testExecutionStatus.self" in df_ze_filtered.columns:
-            pass_mask |= df_ze_filtered["testExecutionStatus.self"].astype(str).str.lower().str.contains("pass")
-        pass_ids = set(pd.to_numeric(df_ze_filtered.loc[pass_mask, "testCase.id"], errors="coerce").dropna().astype(int).tolist())
+    # --- Seleciona testes regressivos ---
+    df_reg = df_zc[df_zc[tc_class_col].astype(str).str.lower().str.contains("regression", na=False)]
+    if df_reg.empty:
+        return 0.0
 
-    automated_reg_ids = (auto_ids | pass_ids) & reg_tc_ids
-    num = len(automated_reg_ids)
-    return round(pct(num, den), 2)
+    total_regression = len(df_reg)
+
+    # --- Seleciona apenas regressivos automatizados ---
+    df_auto_reg = df_reg[df_reg[auto_col].astype(str).str.lower().isin(["automated", "yes", "true", "1"])]
+    automated_regression = len(df_auto_reg)
+
+    return round(pct(automated_regression, total_regression), 2)
+
 
 # def kpi_negative_now(df_zc: pd.DataFrame, issue_ids_sel: set[int] | None) -> float:
 #     if df_zc.empty:
