@@ -197,21 +197,21 @@ def kpi_negative_now(df_zc: pd.DataFrame) -> float:
         return 0.0
 
     # Descobre a coluna de "Test Type"
-    tc_type_col = next(
+    tc_class_col = next(
         (
             c
             for c in [
-                "customFields.Test Type",
-                "customFields.TestType",
-                "customFields.Test type",
-                "customFields.Test_Type",
-                "Test Type",
+                "customFields.Test Class", 
+                "customFields.TestClass", 
+                "customFields.Test class", 
+                "customFields.Test_Class",
+                "Test_Class"
             ]
             if c in df_zc.columns
         ),
         None,
     )
-    if tc_type_col is None:
+    if tc_class_col is None:
         return 0.0
 
     den = len(df_zc)
@@ -219,7 +219,7 @@ def kpi_negative_now(df_zc: pd.DataFrame) -> float:
         return 0.0
 
     num = int(
-        df_zc[tc_type_col]
+        df_zc[tc_class_col]
         .astype(str)
         .str.lower()
         .str.contains("negative", na=False)
