@@ -86,60 +86,6 @@ def _compute_total_coverage(df_story_f: pd.DataFrame,
     return (num_cov / denom) * 100.0
 
 
-# def _compute_test_avg_per_issue(df_story_f: pd.DataFrame,
-#                                 df_epic_f: pd.DataFrame,
-#                                 df_func_f: pd.DataFrame,
-#                                 df_zc_f: pd.DataFrame) -> float:
-#     """
-#     Test AVG per issue:
-#       - denominador = issues (Story + Epic + Func) que têm pelo menos 1 teste vinculado
-#       - numerador   = quantidade de test cases distintos (df_zc_f) no contexto filtrado
-#     """
-
-#     # Conjunto de issues consideradas (mesmo universo do %Total Coverage)
-#     story_ids = _safe_issue_ids(df_story_f)
-#     epic_ids  = _safe_issue_ids(df_epic_f)
-#     func_ids  = _safe_issue_ids(df_func_f)
-#     all_issue_ids = story_ids | epic_ids | func_ids
-
-#     if not all_issue_ids or df_zc_f is None or df_zc_f.empty:
-#         return 0.0
-
-#     # Issues que realmente têm pelo menos 1 teste vinculado
-#     covered_ids = extract_linked_issue_ids(
-#         df_zc_f,
-#         (
-#             "links.issues.issueId",
-#             "links.issues.issue id",
-#             "links.issues.issue idnbsp",
-#         ),
-#     )
-#     issues_with_tests = all_issue_ids & covered_ids
-#     n_issues_with_tests = len(issues_with_tests)
-#     if n_issues_with_tests == 0:
-#         return 0.0
-
-#     # Numerador: total de test cases distintos deste contexto
-#     # Preferimos 'testcasekey'; se não existir, caímos para 'key'; se não, para 'id'.
-#     col_tc = None
-#     for cand in ["testcasekey", "testCaseKey", "key", "id"]:
-#         if cand in df_zc_f.columns:
-#             col_tc = cand
-#             break
-
-#     if not col_tc:
-#         # fallback: conta linhas
-#         n_tests = int(len(df_zc_f.index))
-#     else:
-#         n_tests = int(
-#             df_zc_f[col_tc]
-#             .dropna()
-#             .astype(str)
-#             .nunique()
-#         )
-
-#     return float(n_tests) / float(n_issues_with_tests)
-
 def _compute_test_avg_per_issue(df_story_f: pd.DataFrame,
                                 df_epic_f: pd.DataFrame,
                                 df_func_f: pd.DataFrame,
@@ -159,7 +105,7 @@ def _compute_test_avg_per_issue(df_story_f: pd.DataFrame,
     if not all_issue_ids or df_zc_f is None or df_zc_f.empty:
         return 0.0
 
-    # Issues com pelo menos 1 teste vinculado
+    # Issues que realmente têm pelo menos 1 teste vinculado
     covered_ids = extract_linked_issue_ids(
         df_zc_f,
         (
@@ -193,31 +139,6 @@ def _compute_test_avg_per_issue(df_story_f: pd.DataFrame,
         )
 
     return float(n_tests) / float(n_issues_with_tests)
-
-
-def _scale_series_to_match_kpi(df: pd.DataFrame, target_value: float) -> pd.DataFrame:
-    """
-    Ajusta a série mensal para que o último ponto ('value') seja igual
-    ao valor exibido no card (target_value), mantendo o formato da curva.
-
-    Se a série estiver vazia ou o último valor for zero, retorna a série original.
-    """
-    if df is None or df.empty or "value" not in df.columns:
-        return df
-
-    df_adj = df.copy()
-    # Considera apenas valores não nulos na coluna 'value'
-    vals = df_adj["value"].dropna()
-    if vals.empty:
-        return df_adj
-
-    last_val = float(vals.iloc[-1])
-    if last_val == 0:
-        return df_adj
-
-    fator = float(target_value) / last_val
-    df_adj["value"] = df_adj["value"].astype(float) * fator
-    return df_adj
 
 
 def pagina_dashboard_kpi():
@@ -552,36 +473,6 @@ def pagina_dashboard_kpi():
 
     st.markdown("---")
 
-    # # ---------- Série mensal do KPI selecionado ----------
-    # sel_key = st.session_state["kpi_selected"]
-    # st.markdown(f"#### {KPI_DEFS[sel_key]['title']}")
-
-    # # Para as séries mensais, mantemos as funções do módulo metrics
-    # if sel_key == "coverage":
-    #     df_series = monthly_series_coverage(
-    #         base_issues_sel,
-    #         extract_linked_issue_ids(
-    #             df_zc_f,
-    #             (
-    #                 "links.issues.issueId",
-    #                 "links.issues.issue id",
-    #                 "links.issues.issue idnbsp",
-    #             ),
-    #         ),
-    #     )
-    # elif sel_key == "test_avg":
-    #     df_series = monthly_series_test_avg(base_issues_sel, df_zc_f)
-    # elif sel_key == "auto_runs":
-    #     df_series = monthly_series_auto_runs(df_ze_f)
-    # elif sel_key == "auto_reg":
-    #     df_series = monthly_series_auto_reg(df_zc_f, df_ze_f, issue_ids_sel)
-    # elif sel_key == "test_reg":
-    #     df_series = monthly_series_test_reg(df_zc_f, issue_ids_sel)
-    # elif sel_key == "negative":
-    #     df_series = monthly_series_negative(df_zc_f, issue_ids_sel)
-    # else:  # bug_days não tem série mensal aqui
-    #     df_series = pd.DataFrame(columns=["month", "value"])
-
     # ---------- Série mensal do KPI selecionado ----------
     sel_key = st.session_state["kpi_selected"]
     st.markdown(f"#### {KPI_DEFS[sel_key]['title']}")
@@ -599,9 +490,6 @@ def pagina_dashboard_kpi():
                 ),
             ),
         )
-        # Garantimos que o último ponto do gráfico (% Total Coverage)
-        # seja exatamente o mesmo valor exibido no card.
-        df_series = _scale_series_to_match_kpi(df_series, kpi_coverage)
     elif sel_key == "test_avg":
         df_series = monthly_series_test_avg(base_issues_sel, df_zc_f)
     elif sel_key == "auto_runs":
@@ -614,7 +502,6 @@ def pagina_dashboard_kpi():
         df_series = monthly_series_negative(df_zc_f, issue_ids_sel)
     else:  # bug_days não tem série mensal aqui
         df_series = pd.DataFrame(columns=["month", "value"])
-
 
     if df_series.empty:
         st.info("Sem dados suficientes para este KPI com os filtros atuais.")
