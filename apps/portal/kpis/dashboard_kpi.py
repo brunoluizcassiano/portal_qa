@@ -375,6 +375,59 @@ def _monthly_series_test_avg_cumulative(base_issues_sel: pd.DataFrame,
 
     return pd.DataFrame(rows)
 
+def _monthly_series_auto_reg_cumulative(df_zc_f: pd.DataFrame) -> pd.DataFrame:
+    """
+    Série mensal de % Automated Regression usando a MESMA lógica do card.
+
+    Para cada mês M (visão cumulativa):
+      - considera todos os test cases criados até o fim de M (df_zc_f filtrado)
+      - aplica kpi_auto_reg_now(df_zc_periodo) para calcular o percentual.
+
+    O último mês desta série será exatamente igual ao valor do card.
+    """
+    if df_zc_f is None or df_zc_f.empty:
+        return pd.DataFrame(columns=["month", "value"])
+
+    created_col = _find_created_column(df_zc_f)
+    if not created_col or created_col not in df_zc_f.columns:
+        return pd.DataFrame(columns=["month", "value"])
+
+    df = df_zc_f.copy()
+    df["created_dt"] = pd.to_datetime(df[created_col], errors="coerce")
+    df = df.dropna(subset=["created_dt"])
+    if df.empty:
+        return pd.DataFrame(columns=["month", "value"])
+
+    # Mês no formato YYYY-MM
+    df["month"] = df["created_dt"].dt.to_period("M").astype(str)
+
+    # Meses ordenados cronologicamente
+    df_month_ref = (
+        df[["month", "created_dt"]]
+        .groupby("month", as_index=False)["created_dt"]
+        .min()
+        .sort_values("created_dt")
+    )
+    months = df_month_ref["month"].tolist()
+    if not months:
+        return pd.DataFrame(columns=["month", "value"])
+
+    rows = []
+    for m in months:
+        # Test cases criados ATÉ o fim daquele mês (cumulativo)
+        mask_cum = df["month"] <= m
+        df_cum = df.loc[mask_cum]
+
+        if df_cum.empty:
+            value = 0.0
+        else:
+            # usa exatamente a mesma lógica do card
+            value = float(kpi_auto_reg_now(df_cum))
+
+        rows.append({"month": m, "value": value})
+
+    return pd.DataFrame(rows)
+
 def _scale_series_to_match_kpi(df: pd.DataFrame, target_value: float) -> pd.DataFrame:
     """
     Ajusta a série mensal para que o último ponto ('value') seja igual
@@ -732,80 +785,21 @@ def pagina_dashboard_kpi():
 
     st.markdown("---")
 
-    # # ---------- Série mensal do KPI selecionado ----------
-    # sel_key = st.session_state["kpi_selected"]
-    # st.markdown(f"#### {KPI_DEFS[sel_key]['title']}")
-
-    # # Para as séries mensais, mantemos as funções do módulo metrics
-    # if sel_key == "coverage":
-    #     df_series = monthly_series_coverage(
-    #         base_issues_sel,
-    #         extract_linked_issue_ids(
-    #             df_zc_f,
-    #             (
-    #                 "links.issues.issueId",
-    #                 "links.issues.issue id",
-    #                 "links.issues.issue idnbsp",
-    #             ),
-    #         ),
-    #     )
-    # elif sel_key == "test_avg":
-    #     df_series = monthly_series_test_avg(base_issues_sel, df_zc_f)
-    # elif sel_key == "auto_runs":
-    #     df_series = monthly_series_auto_runs(df_ze_f)
-    # elif sel_key == "auto_reg":
-    #     df_series = monthly_series_auto_reg(df_zc_f, df_ze_f, issue_ids_sel)
-    # elif sel_key == "test_reg":
-    #     df_series = monthly_series_test_reg(df_zc_f, issue_ids_sel)
-    # elif sel_key == "negative":
-    #     df_series = monthly_series_negative(df_zc_f, issue_ids_sel)
-    # else:  # bug_days não tem série mensal aqui
-    #     df_series = pd.DataFrame(columns=["month", "value"])
-
     # ---------- Série mensal do KPI selecionado ----------
     sel_key = st.session_state["kpi_selected"]
     st.markdown(f"#### {KPI_DEFS[sel_key]['title']}")
 
-    # # Para as séries mensais, mantemos as funções do módulo metrics
-    # if sel_key == "coverage":
-    #     df_series = monthly_series_coverage(
-    #         base_issues_sel,
-    #         extract_linked_issue_ids(
-    #             df_zc_f,
-    #             (
-    #                 "links.issues.issueId",
-    #                 "links.issues.issue id",
-    #                 "links.issues.issue idnbsp",
-    #             ),
-    #         ),
-    #     )
-    #     # Garantimos que o último ponto do gráfico (% Total Coverage)
-    #     # seja exatamente o mesmo valor exibido no card.
-    #     df_series = _scale_series_to_match_kpi(df_series, kpi_coverage)
-    # elif sel_key == "test_avg":
-    #     df_series = monthly_series_test_avg(base_issues_sel, df_zc_f)
-    # elif sel_key == "auto_runs":
-    #     df_series = monthly_series_auto_runs(df_ze_f)
-    # elif sel_key == "auto_reg":
-    #     df_series = monthly_series_auto_reg(df_zc_f, df_ze_f, issue_ids_sel)
-    # elif sel_key == "test_reg":
-    #     df_series = monthly_series_test_reg(df_zc_f, issue_ids_sel)
-    # elif sel_key == "negative":
-    #     df_series = monthly_series_negative(df_zc_f, issue_ids_sel)
-    # else:  # bug_days não tem série mensal aqui
-    #     df_series = pd.DataFrame(columns=["month", "value"])
-
-        # Para as séries mensais, usamos as funções do módulo metrics,
+    # Para as séries mensais, usamos as funções do módulo metrics,
     # exceto para Coverage, que recalculamos aqui de forma cumulativa
     # para ficar exatamente alinhado com o valor do card.
     if sel_key == "coverage":
         df_series = _monthly_series_coverage_cumulative(base_issues_sel, df_zc_f)
     elif sel_key == "test_avg":
-        # df_series = monthly_series_test_avg(base_issues_sel, df_zc_f)
         df_series = _monthly_series_test_avg_cumulative(base_issues_sel, df_zc_f)
     elif sel_key == "auto_runs":
         df_series = monthly_series_auto_runs(df_ze_f)
     elif sel_key == "auto_reg":
+        # df_series = monthly_series_auto_reg(df_zc_f, df_ze_f, issue_ids_sel)
         df_series = monthly_series_auto_reg(df_zc_f, df_ze_f, issue_ids_sel)
     elif sel_key == "test_reg":
         df_series = monthly_series_test_reg(df_zc_f, issue_ids_sel)
