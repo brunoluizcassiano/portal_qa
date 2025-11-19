@@ -800,7 +800,7 @@ def pagina_dashboard_kpi():
         df_series = monthly_series_auto_runs(df_ze_f)
     elif sel_key == "auto_reg":
         # df_series = monthly_series_auto_reg(df_zc_f, df_ze_f, issue_ids_sel)
-        df_series = monthly_series_auto_reg(df_zc_f, df_ze_f, issue_ids_sel)
+        df_series = _monthly_series_auto_reg_cumulative(df_zc_f)
     elif sel_key == "test_reg":
         df_series = monthly_series_test_reg(df_zc_f, issue_ids_sel)
     elif sel_key == "negative":
