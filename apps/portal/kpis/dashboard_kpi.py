@@ -428,6 +428,74 @@ def _monthly_series_auto_reg_cumulative(df_zc_f: pd.DataFrame) -> pd.DataFrame:
 
     return pd.DataFrame(rows)
 
+def _find_execution_date_column(df: pd.DataFrame):
+    """
+    Tenta descobrir uma coluna de data em df de execuções (Zephyr).
+    Prioriza campos de execução e, em último caso, 'created'.
+    """
+    if df is None or df.empty:
+        return None
+    patterns = ["execut", "start", "created"]
+    for pattern in patterns:
+        for col in df.columns:
+            if pattern in str(col).lower():
+                return col
+    return None
+
+
+def _monthly_series_auto_runs_cumulative(df_ze_f: pd.DataFrame) -> pd.DataFrame:
+    """
+    Série mensal de % Automated Runs usando a MESMA lógica do card.
+
+    Para cada mês M (visão cumulativa):
+      - considera todas as execuções até o fim de M (df_ze_f filtrado)
+      - aplica kpi_auto_runs_now(df_cum) para calcular o percentual.
+
+    O último mês desta série será exatamente igual ao valor do card.
+    """
+    if df_ze_f is None or df_ze_f.empty:
+        return pd.DataFrame(columns=["month", "value"])
+
+    date_col = _find_execution_date_column(df_ze_f)
+    if not date_col or date_col not in df_ze_f.columns:
+        return pd.DataFrame(columns=["month", "value"])
+
+    df = df_ze_f.copy()
+    df["exec_dt"] = pd.to_datetime(df[date_col], errors="coerce")
+    df = df.dropna(subset=["exec_dt"])
+    if df.empty:
+        return pd.DataFrame(columns=["month", "value"])
+
+    # Mês no formato YYYY-MM
+    df["month"] = df["exec_dt"].dt.to_period("M").astype(str)
+
+    # Meses ordenados cronologicamente
+    df_month_ref = (
+        df[["month", "exec_dt"]]
+        .groupby("month", as_index=False)["exec_dt"]
+        .min()
+        .sort_values("exec_dt")
+    )
+    months = df_month_ref["month"].tolist()
+    if not months:
+        return pd.DataFrame(columns=["month", "value"])
+
+    rows = []
+    for m in months:
+        # Execuções realizadas ATÉ o fim daquele mês (cumulativo)
+        mask_cum = df["month"] <= m
+        df_cum = df.loc[mask_cum]
+
+        if df_cum.empty:
+            value = 0.0
+        else:
+            # usa exatamente a mesma lógica do card
+            value = float(kpi_auto_runs_now(df_cum))
+
+        rows.append({"month": m, "value": value})
+
+    return pd.DataFrame(rows)
+
 def _scale_series_to_match_kpi(df: pd.DataFrame, target_value: float) -> pd.DataFrame:
     """
     Ajusta a série mensal para que o último ponto ('value') seja igual
@@ -797,9 +865,9 @@ def pagina_dashboard_kpi():
     elif sel_key == "test_avg":
         df_series = _monthly_series_test_avg_cumulative(base_issues_sel, df_zc_f)
     elif sel_key == "auto_runs":
-        df_series = monthly_series_auto_runs(df_ze_f)
+        # df_series = monthly_series_auto_runs(df_ze_f)
+        df_series = _monthly_series_auto_runs_cumulative(df_ze_f)
     elif sel_key == "auto_reg":
-        # df_series = monthly_series_auto_reg(df_zc_f, df_ze_f, issue_ids_sel)
         df_series = _monthly_series_auto_reg_cumulative(df_zc_f)
     elif sel_key == "test_reg":
         df_series = monthly_series_test_reg(df_zc_f, issue_ids_sel)
