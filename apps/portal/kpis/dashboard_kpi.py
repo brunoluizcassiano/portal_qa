@@ -805,24 +805,81 @@ def pagina_dashboard_kpi():
     df_epic_f  = apply_year_filter(apply_project_issues(df_epic), sel_year)
     df_story_f = apply_year_filter(apply_project_issues(df_story), sel_year)
 
-    # Bugs/Sub-bugs (projeto + ano)
+    # # Bugs/Sub-bugs (projeto + ano)
+    # df_bug_f    = apply_year_filter(apply_project_bugs(df_bug, project_key_selected()), sel_year)
+    # df_subbug_f = apply_year_filter(apply_project_bugs(df_subbug, project_key_selected()), sel_year)
+
+    # # Execuções (projeto + ano)
+    # def executions_filtered_by_project(df_ze_in: pd.DataFrame) -> pd.DataFrame:
+    #     if df_ze_in.empty:
+    #         return df_ze_in
+    #     if sel_project_name != "Todos":
+    #         pk = project_key_selected()
+    #         if "projectKey" in df_ze_in.columns:
+    #             df_ze_in = df_ze_in[df_ze_in["projectKey"].astype(str) == str(pk)].copy()
+    #     return apply_year_filter(df_ze_in, sel_year)
+
+    # df_ze_f = executions_filtered_by_project(df_ze)
+
+    # # Test Cases (projeto + ano) – importante para o % Total Coverage e Test AVG
+    # df_zc_f = apply_year_filter(apply_project_testcases(df_zc_raw), sel_year)
+
+        # Bugs/Sub-bugs (projeto + ano)
     df_bug_f    = apply_year_filter(apply_project_bugs(df_bug, project_key_selected()), sel_year)
     df_subbug_f = apply_year_filter(apply_project_bugs(df_subbug, project_key_selected()), sel_year)
 
-    # Execuções (projeto + ano)
-    def executions_filtered_by_project(df_ze_in: pd.DataFrame) -> pd.DataFrame:
+    # Test Cases (projeto + ano) – importante para o % Total Coverage, Test AVG e Auto Runs
+    df_zc_f = apply_year_filter(apply_project_testcases(df_zc_raw), sel_year)
+
+    # Execuções (projeto + ano) – agora casadas com os test cases da tribo
+    def executions_filtered_by_project(df_ze_in: pd.DataFrame,
+                                       df_zc_proj: pd.DataFrame) -> pd.DataFrame:
+        """
+        Filtra execuções por tribo/ano usando a lista de test cases da tribo.
+
+        - df_zc_proj já está filtrado por tribo + ano (df_zc_f).
+        - Mantém em df_ze_in apenas execuções cujo testCaseKey pertence
+          a algum test case da tribo.
+        - Depois aplica o filtro de ano normalmente.
+        """
         if df_ze_in.empty:
             return df_ze_in
-        if sel_project_name != "Todos":
-            pk = project_key_selected()
-            if "projectKey" in df_ze_in.columns:
-                df_ze_in = df_ze_in[df_ze_in["projectKey"].astype(str) == str(pk)].copy()
-        return apply_year_filter(df_ze_in, sel_year)
 
-    df_ze_f = executions_filtered_by_project(df_ze)
+        df_exec = df_ze_in.copy()
 
-    # Test Cases (projeto + ano) – importante para o % Total Coverage e Test AVG
-    df_zc_f = apply_year_filter(apply_project_testcases(df_zc_raw), sel_year)
+        if sel_project_name != "Todos" and not df_zc_proj.empty:
+            # Coluna da chave de Test Case em df_zc (tribo)
+            tc_col_zc = None
+            for cand in ["testCaseKey", "testcasekey", "key", "id"]:
+                if cand in df_zc_proj.columns:
+                    tc_col_zc = cand
+                    break
+
+            if tc_col_zc:
+                tc_keys = (
+                    df_zc_proj[tc_col_zc]
+                    .dropna()
+                    .astype(str)
+                    .unique()
+                    .tolist()
+                )
+
+                if tc_keys:
+                    # Coluna equivalente em df_ze (execuções)
+                    tc_col_ze = None
+                    for cand in ["testCaseKey", "testcasekey", "testCase.key", "testcase.key", "test_key"]:
+                        if cand in df_exec.columns:
+                            tc_col_ze = cand
+                            break
+
+                    if tc_col_ze:
+                        df_exec = df_exec[df_exec[tc_col_ze].astype(str).isin(tc_keys)].copy()
+
+        # Filtro de ano (usa a lógica padrão do apply_year_filter)
+        return apply_year_filter(df_exec, sel_year)
+
+    df_ze_f = executions_filtered_by_project(df_ze, df_zc_f)
+
 
     # Base de issues combinada
     base_issues_sel = pd.concat(
@@ -994,7 +1051,6 @@ def pagina_dashboard_kpi():
     elif sel_key == "test_reg":
         df_series = _monthly_series_test_reg_cumulative(df_zc_f)
     elif sel_key == "negative":
-        # df_series = monthly_series_negative(df_zc_f, issue_ids_sel)
         df_series = _monthly_series_negative_cumulative(df_zc_f)
     else:  # bug_days não tem série mensal aqui
         df_series = pd.DataFrame(columns=["month", "value"])
