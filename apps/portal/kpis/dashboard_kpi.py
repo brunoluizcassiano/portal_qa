@@ -280,6 +280,101 @@ def _monthly_series_coverage_cumulative(base_issues_sel: pd.DataFrame,
 
     return pd.DataFrame(rows)
 
+def _monthly_series_test_avg_cumulative(base_issues_sel: pd.DataFrame,
+                                        df_zc_f: pd.DataFrame) -> pd.DataFrame:
+    """
+    Série mensal de Test AVG per issue usando a MESMA lógica do card.
+
+    Para cada mês M (visão cumulativa):
+      - numerador   = total de test cases distintos em df_zc_f
+                      (já filtrado por projeto/ano)
+      - denominador = quantidade de issues (Story/Epic/Func) que têm
+                      pelo menos 1 teste vinculado, considerando apenas
+                      issues criadas até o fim de M.
+
+    O último mês desta série será igual ao valor do card.
+    """
+    if base_issues_sel is None or base_issues_sel.empty:
+        return pd.DataFrame(columns=["month", "value"])
+
+    if df_zc_f is None or df_zc_f.empty:
+        return pd.DataFrame(columns=["month", "value"])
+
+    created_col = _find_created_column(base_issues_sel)
+    if not created_col or created_col not in base_issues_sel.columns:
+        return pd.DataFrame(columns=["month", "value"])
+
+    df = base_issues_sel.copy()
+    df["created_dt"] = pd.to_datetime(df[created_col], errors="coerce")
+    df = df.dropna(subset=["created_dt"])
+    if df.empty:
+        return pd.DataFrame(columns=["month", "value"])
+
+    # Mês no formato YYYY-MM
+    df["month"] = df["created_dt"].dt.to_period("M").astype(str)
+
+    # Meses ordenados cronologicamente
+    df_month_ref = (
+        df[["month", "created_dt"]]
+        .groupby("month", as_index=False)["created_dt"]
+        .min()
+        .sort_values("created_dt")
+    )
+    months = df_month_ref["month"].tolist()
+    if not months:
+        return pd.DataFrame(columns=["month", "value"])
+
+    # Issues que aparecem em pelo menos 1 teste (no ano/projeto)
+    covered_ids = extract_linked_issue_ids(
+        df_zc_f,
+        (
+            "links.issues.issueId",
+            "links.issues.issue id",
+            "links.issues.issue idnbsp",
+        ),
+    )
+
+    # Total de test cases distintos (numerador fixo)
+    col_tc = None
+    for cand in ["testcasekey", "testCaseKey", "key", "id"]:
+        if cand in df_zc_f.columns:
+            col_tc = cand
+            break
+
+    if not col_tc:
+        n_tests = int(len(df_zc_f.index))
+    else:
+        n_tests = int(
+            df_zc_f[col_tc]
+            .dropna()
+            .astype(str)
+            .nunique()
+        )
+
+    if n_tests == 0:
+        return pd.DataFrame(columns=["month", "value"])
+
+    rows = []
+    for m in months:
+        # Issues criadas ATÉ o fim daquele mês (cumulativo)
+        mask_cum = df["month"] <= m
+        df_cum = df.loc[mask_cum]
+
+        month_issue_ids = _safe_issue_ids(df_cum)
+        if not month_issue_ids:
+            value = 0.0
+        else:
+            issues_with_tests = month_issue_ids & covered_ids
+            n_issues_with_tests = len(issues_with_tests)
+            if n_issues_with_tests == 0:
+                value = 0.0
+            else:
+                value = float(n_tests) / float(n_issues_with_tests)
+
+        rows.append({"month": m, "value": value})
+
+    return pd.DataFrame(rows)
+
 def _scale_series_to_match_kpi(df: pd.DataFrame, target_value: float) -> pd.DataFrame:
     """
     Ajusta a série mensal para que o último ponto ('value') seja igual
@@ -706,7 +801,8 @@ def pagina_dashboard_kpi():
     if sel_key == "coverage":
         df_series = _monthly_series_coverage_cumulative(base_issues_sel, df_zc_f)
     elif sel_key == "test_avg":
-        df_series = monthly_series_test_avg(base_issues_sel, df_zc_f)
+        # df_series = monthly_series_test_avg(base_issues_sel, df_zc_f)
+        df_series = _monthly_series_test_avg_cumulative(base_issues_sel, df_zc_f)
     elif sel_key == "auto_runs":
         df_series = monthly_series_auto_runs(df_ze_f)
     elif sel_key == "auto_reg":
