@@ -831,7 +831,7 @@ def pagina_dashboard_kpi():
     # Test Cases (projeto + ano) – importante para o % Total Coverage, Test AVG e Auto Runs
     df_zc_f = apply_year_filter(apply_project_testcases(df_zc_raw), sel_year)
 
-    # Execuções (projeto + ano) – agora casadas com os test cases da tribo
+    # Execuções (projeto + ano) – casadas com os test cases da tribo
     def executions_filtered_by_project(df_ze_in: pd.DataFrame,
                                        df_zc_proj: pd.DataFrame) -> pd.DataFrame:
         """
@@ -848,7 +848,7 @@ def pagina_dashboard_kpi():
         df_exec = df_ze_in.copy()
 
         if sel_project_name != "Todos" and not df_zc_proj.empty:
-            # Coluna da chave de Test Case em df_zc (tribo)
+            # coluna da chave de Test Case na massa de test cases
             tc_col_zc = None
             for cand in ["testCaseKey", "testcasekey", "key", "id"]:
                 if cand in df_zc_proj.columns:
@@ -865,7 +865,7 @@ def pagina_dashboard_kpi():
                 )
 
                 if tc_keys:
-                    # Coluna equivalente em df_ze (execuções)
+                    # coluna equivalente nas execuções
                     tc_col_ze = None
                     for cand in ["testCaseKey", "testcasekey", "testCase.key", "testcase.key", "test_key"]:
                         if cand in df_exec.columns:
@@ -875,7 +875,7 @@ def pagina_dashboard_kpi():
                     if tc_col_ze:
                         df_exec = df_exec[df_exec[tc_col_ze].astype(str).isin(tc_keys)].copy()
 
-        # Filtro de ano (usa a lógica padrão do apply_year_filter)
+        # filtro de ano (usa a mesma lógica já usada antes)
         return apply_year_filter(df_exec, sel_year)
 
     df_ze_f = executions_filtered_by_project(df_ze, df_zc_f)
