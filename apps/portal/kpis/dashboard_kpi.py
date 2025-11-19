@@ -430,18 +430,35 @@ def _monthly_series_auto_reg_cumulative(df_zc_f: pd.DataFrame) -> pd.DataFrame:
 
 def _find_execution_date_column(df: pd.DataFrame):
     """
-    Tenta descobrir uma coluna de data em df de execuções (Zephyr).
-    Prioriza campos de execução e, em último caso, 'created'.
+    Tenta descobrir a coluna de data em df de execuções (Zephyr).
+
+    Prioridade:
+    1) actualEndDate (data de término real da execução)
+    2) outros campos de execução / início
+    3) created (fallback)
     """
     if df is None or df.empty:
         return None
-    patterns = ["execut", "start", "created"]
+
+    # 1) tenta bater exatamente com nomes mais comuns
+    preferred_cols = [
+        "actualEndDate",
+        "actual_end_date",
+        "executionDate",
+        "execution_date",
+    ]
+    for col in df.columns:
+        if str(col) in preferred_cols:
+            return col
+
+    # 2) fallback por padrão no nome (case-insensitive)
+    patterns = ["actualenddate", "actualend", "enddate", "execut", "execution", "start", "created"]
     for pattern in patterns:
         for col in df.columns:
             if pattern in str(col).lower():
                 return col
-    return None
 
+    return None
 
 def _monthly_series_auto_runs_cumulative(df_ze_f: pd.DataFrame) -> pd.DataFrame:
     """
@@ -865,7 +882,6 @@ def pagina_dashboard_kpi():
     elif sel_key == "test_avg":
         df_series = _monthly_series_test_avg_cumulative(base_issues_sel, df_zc_f)
     elif sel_key == "auto_runs":
-        # df_series = monthly_series_auto_runs(df_ze_f)
         df_series = _monthly_series_auto_runs_cumulative(df_ze_f)
     elif sel_key == "auto_reg":
         df_series = _monthly_series_auto_reg_cumulative(df_zc_f)
