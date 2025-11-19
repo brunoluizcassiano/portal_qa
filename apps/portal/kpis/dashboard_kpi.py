@@ -831,54 +831,43 @@ def pagina_dashboard_kpi():
     # Test Cases (projeto + ano) – importante para o % Total Coverage, Test AVG e Auto Runs
     df_zc_f = apply_year_filter(apply_project_testcases(df_zc_raw), sel_year)
 
-    # Execuções (projeto + ano) – casadas com os test cases da tribo
-    def executions_filtered_by_project(df_ze_in: pd.DataFrame,
-                                       df_zc_proj: pd.DataFrame) -> pd.DataFrame:
+    # Execuções (projeto + ano) – filtradas pelo prefixo da chave de execução (TRBC-E9872 → TRBC)
+    def executions_filtered_by_project(df_ze_in: pd.DataFrame) -> pd.DataFrame:
         """
-        Filtra execuções por tribo/ano usando a lista de test cases da tribo.
+        Filtra execuções por tribo/ano usando o prefixo da chave de execução.
 
-        - df_zc_proj já está filtrado por tribo + ano (df_zc_f).
-        - Mantém em df_ze_in apenas execuções cujo testCaseKey pertence
-          a algum test case da tribo.
-        - Depois aplica o filtro de ano normalmente.
+        Exemplo de chave de execução: TRBC-E9872  -> tribo/projeto = 'TRBC'.
         """
         if df_ze_in.empty:
             return df_ze_in
 
         df_exec = df_ze_in.copy()
 
-        if sel_project_name != "Todos" and not df_zc_proj.empty:
-            # coluna da chave de Test Case na massa de test cases
-            tc_col_zc = None
-            for cand in ["testCaseKey", "testcasekey", "key", "id"]:
-                if cand in df_zc_proj.columns:
-                    tc_col_zc = cand
+        if sel_project_name != "Todos":
+            pk = str(project_key_selected())
+
+            # tenta descobrir a coluna que contém a chave da execução
+            exec_key_col = None
+            for cand in ["key", "testExecutionKey", "testexecutionkey", "testExecution.key", "testexecution.key"]:
+                if cand in df_exec.columns:
+                    exec_key_col = cand
                     break
 
-            if tc_col_zc:
-                tc_keys = (
-                    df_zc_proj[tc_col_zc]
-                    .dropna()
+            if exec_key_col:
+                # extrai o prefixo antes do primeiro '-'
+                df_exec["_tribe_from_exec_key"] = (
+                    df_exec[exec_key_col]
                     .astype(str)
-                    .unique()
-                    .tolist()
+                    .str.split("-", n=1)
+                    .str[0]
                 )
+                df_exec = df_exec[df_exec["_tribe_from_exec_key"] == pk].copy()
+                df_exec = df_exec.drop(columns=["_tribe_from_exec_key"])
 
-                if tc_keys:
-                    # coluna equivalente nas execuções
-                    tc_col_ze = None
-                    for cand in ["testCaseKey", "testcasekey", "testCase.key", "testcase.key", "test_key"]:
-                        if cand in df_exec.columns:
-                            tc_col_ze = cand
-                            break
-
-                    if tc_col_ze:
-                        df_exec = df_exec[df_exec[tc_col_ze].astype(str).isin(tc_keys)].copy()
-
-        # filtro de ano (usa a mesma lógica já usada antes)
+        # aplica filtro de ano (usa actualEndDate/executionDate via apply_year_filter)
         return apply_year_filter(df_exec, sel_year)
 
-    df_ze_f = executions_filtered_by_project(df_ze, df_zc_f)
+    df_ze_f = executions_filtered_by_project(df_ze)
 
 
     # Base de issues combinada
