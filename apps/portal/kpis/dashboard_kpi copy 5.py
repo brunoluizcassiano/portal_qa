@@ -194,91 +194,6 @@ def _compute_test_avg_per_issue(df_story_f: pd.DataFrame,
 
     return float(n_tests) / float(n_issues_with_tests)
 
-def _find_created_column(df: pd.DataFrame):
-    """
-    Tenta descobrir a coluna de data de criação da issue
-    (qualquer coluna que contenha 'created' no nome).
-    """
-    if df is None or df.empty:
-        return None
-    for col in df.columns:
-        if "created" in str(col).lower():
-            return col
-    return None
-
-
-def _monthly_series_coverage_cumulative(base_issues_sel: pd.DataFrame,
-                                        df_zc_f: pd.DataFrame) -> pd.DataFrame:
-    """
-    Série mensal de % Total Coverage usando a MESMA lógica do card,
-    mas mês a mês de forma cumulativa.
-
-    - Base = issues (Story/Epic/Func) de base_issues_sel (já filtradas por tribo/ano)
-    - Coberta = issue que aparece em pelo menos 1 test case (df_zc_f)
-    - Para cada mês M: considera TODAS as issues criadas até o fim de M.
-
-    O último mês desta série sempre será igual ao valor do card,
-    e nenhum mês passa de 100%.
-    """
-    if base_issues_sel is None or base_issues_sel.empty:
-        return pd.DataFrame(columns=["month", "value"])
-
-    created_col = _find_created_column(base_issues_sel)
-    if not created_col or created_col not in base_issues_sel.columns:
-        return pd.DataFrame(columns=["month", "value"])
-
-    df = base_issues_sel.copy()
-    df["created_dt"] = pd.to_datetime(df[created_col], errors="coerce")
-    df = df.dropna(subset=["created_dt"])
-    if df.empty:
-        return pd.DataFrame(columns=["month", "value"])
-
-    # Mês no formato YYYY-MM
-    df["month"] = df["created_dt"].dt.to_period("M").astype(str)
-
-    # Meses ordenados cronologicamente
-    df_month_ref = (
-        df[["month", "created_dt"]]
-        .groupby("month", as_index=False)["created_dt"]
-        .min()
-        .sort_values("created_dt")
-    )
-    months = df_month_ref["month"].tolist()
-    if not months:
-        return pd.DataFrame(columns=["month", "value"])
-
-    # Conjunto total de issues
-    all_issue_ids = _safe_issue_ids(df)
-    if not all_issue_ids:
-        return pd.DataFrame(columns=["month", "value"])
-
-    # Issues que aparecem em pelo menos 1 teste
-    covered_ids = extract_linked_issue_ids(
-        df_zc_f,
-        (
-            "links.issues.issueId",
-            "links.issues.issue id",
-            "links.issues.issue idnbsp",
-        ),
-    )
-
-    rows = []
-    for m in months:
-        # Issues criadas ATÉ o fim daquele mês (cumulativo)
-        mask_cum = df["month"] <= m
-        df_cum = df.loc[mask_cum]
-
-        month_issue_ids = _safe_issue_ids(df_cum)
-        denom = len(month_issue_ids)
-        if denom == 0:
-            value = 0.0
-        else:
-            covered_month_ids = month_issue_ids & covered_ids
-            value = (len(covered_month_ids) / denom) * 100.0
-
-        rows.append({"month": m, "value": value})
-
-    return pd.DataFrame(rows)
 
 def _scale_series_to_match_kpi(df: pd.DataFrame, target_value: float) -> pd.DataFrame:
     """
@@ -671,40 +586,22 @@ def pagina_dashboard_kpi():
     sel_key = st.session_state["kpi_selected"]
     st.markdown(f"#### {KPI_DEFS[sel_key]['title']}")
 
-    # # Para as séries mensais, mantemos as funções do módulo metrics
-    # if sel_key == "coverage":
-    #     df_series = monthly_series_coverage(
-    #         base_issues_sel,
-    #         extract_linked_issue_ids(
-    #             df_zc_f,
-    #             (
-    #                 "links.issues.issueId",
-    #                 "links.issues.issue id",
-    #                 "links.issues.issue idnbsp",
-    #             ),
-    #         ),
-    #     )
-    #     # Garantimos que o último ponto do gráfico (% Total Coverage)
-    #     # seja exatamente o mesmo valor exibido no card.
-    #     df_series = _scale_series_to_match_kpi(df_series, kpi_coverage)
-    # elif sel_key == "test_avg":
-    #     df_series = monthly_series_test_avg(base_issues_sel, df_zc_f)
-    # elif sel_key == "auto_runs":
-    #     df_series = monthly_series_auto_runs(df_ze_f)
-    # elif sel_key == "auto_reg":
-    #     df_series = monthly_series_auto_reg(df_zc_f, df_ze_f, issue_ids_sel)
-    # elif sel_key == "test_reg":
-    #     df_series = monthly_series_test_reg(df_zc_f, issue_ids_sel)
-    # elif sel_key == "negative":
-    #     df_series = monthly_series_negative(df_zc_f, issue_ids_sel)
-    # else:  # bug_days não tem série mensal aqui
-    #     df_series = pd.DataFrame(columns=["month", "value"])
-
-        # Para as séries mensais, usamos as funções do módulo metrics,
-    # exceto para Coverage, que recalculamos aqui de forma cumulativa
-    # para ficar exatamente alinhado com o valor do card.
+    # Para as séries mensais, mantemos as funções do módulo metrics
     if sel_key == "coverage":
-        df_series = _monthly_series_coverage_cumulative(base_issues_sel, df_zc_f)
+        df_series = monthly_series_coverage(
+            base_issues_sel,
+            extract_linked_issue_ids(
+                df_zc_f,
+                (
+                    "links.issues.issueId",
+                    "links.issues.issue id",
+                    "links.issues.issue idnbsp",
+                ),
+            ),
+        )
+        # Garantimos que o último ponto do gráfico (% Total Coverage)
+        # seja exatamente o mesmo valor exibido no card.
+        df_series = _scale_series_to_match_kpi(df_series, kpi_coverage)
     elif sel_key == "test_avg":
         df_series = monthly_series_test_avg(base_issues_sel, df_zc_f)
     elif sel_key == "auto_runs":
@@ -717,7 +614,6 @@ def pagina_dashboard_kpi():
         df_series = monthly_series_negative(df_zc_f, issue_ids_sel)
     else:  # bug_days não tem série mensal aqui
         df_series = pd.DataFrame(columns=["month", "value"])
-
 
 
     if df_series.empty:
