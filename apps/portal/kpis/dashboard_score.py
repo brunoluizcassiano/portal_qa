@@ -342,7 +342,7 @@ def pagina_dashboard_score():
         df_zc_f,
     )
 
-
+    # Test Avg Per Issue (mantendo a lógica de execuções que você já usava)
     if not df_ze_f.empty and "issueKey" in df_ze_f.columns:
         by_issue = df_ze_f.dropna(subset=["issueKey"]).groupby("issueKey").size()
         test_avg = float(by_issue.mean()) if not by_issue.empty else 0.0
@@ -445,17 +445,24 @@ def pagina_dashboard_score():
 
     # ---------------- Séries mensais (nota base 1–4 do indicador) ----------------
     def series_coverage():
-        def agg(df): return df.groupby("month").size().rename("n") if "month" in df.columns else pd.Series(dtype=int)
-        s_func, s_story, s_epic = agg(df_func_f), agg(df_story_f), agg(df_epic_f)
-        idx = sorted(set(s_func.index) | set(s_story.index) | set(s_epic.index))
-        rows = []
-        for m in idx:
-            num = int(s_func.get(m,0) + s_story.get(m,0))
-            den = int(num + s_epic.get(m,0))
-            cov = _pct(num, den)
-            rows.append({"month": m, "value": float(score_coverage(cov))})
-        return pd.DataFrame(rows)
+        """
+        Série mensal da nota de % Total Coverage (1–4),
+        usando a MESMA lógica da tela de KPI:
 
+        1. Calcula o % de coverage mês a mês de forma cumulativa
+           com _monthly_series_coverage_cumulative(base_issues_sel, df_zc_f);
+        2. Converte o % de cada mês em nota base (1–4) com score_coverage.
+        """
+        if base_issues_sel is None or base_issues_sel.empty or df_zc_f is None:
+            return pd.DataFrame(columns=["month", "value"])
+
+        df_cov = _monthly_series_coverage_cumulative(base_issues_sel, df_zc_f)
+        if df_cov.empty:
+            return pd.DataFrame(columns=["month", "value"])
+
+        df_cov = df_cov.copy()
+        df_cov["value"] = df_cov["value"].apply(lambda v: float(score_coverage(float(v))))
+        return df_cov[["month", "value"]]
 
     def series_test_avg():
         if df_ze_f.empty or "issueKey" not in df_ze_f.columns: return pd.DataFrame(columns=["month","value"])
