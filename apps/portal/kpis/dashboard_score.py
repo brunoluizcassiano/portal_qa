@@ -4,6 +4,8 @@ import pandas as pd
 import numpy as np
 import altair as alt
 
+from .dashboard_kpi import _compute_total_coverage
+
 from .analytics.constants import (
     WARN_RATIO, KPI_LASTUPDATE,
     JIRA_FUNC, JIRA_EPIC, JIRA_STORY, JIRA_BUG, JIRA_SUBBUG, JIRA_PROJ,
@@ -299,9 +301,9 @@ def pagina_dashboard_score():
     df_ze_f     = _filter_executions(df_ze) if not df_ze.empty else df_ze
 
     # ---------------- Métricas brutas ----------------
-    cov_num = len(df_func_f) + len(df_story_f)
-    cov_den = cov_num + len(df_epic_f)
-    coverage_pct = _pct(cov_num, cov_den)
+    # Total Coverage alinhado com a tela de KPI:
+    # % de EPIC/STORY/FUNC que possuem pelo menos 1 test case linkado no Zephyr
+    coverage_pct = _compute_total_coverage(df_story_f, df_epic_f, df_func_f, df_zc_f)
 
     if not df_ze_f.empty and "issueKey" in df_ze_f.columns:
         by_issue = df_ze_f.dropna(subset=["issueKey"]).groupby("issueKey").size()
@@ -415,6 +417,7 @@ def pagina_dashboard_score():
             cov = _pct(num, den)
             rows.append({"month": m, "value": float(score_coverage(cov))})
         return pd.DataFrame(rows)
+
 
     def series_test_avg():
         if df_ze_f.empty or "issueKey" not in df_ze_f.columns: return pd.DataFrame(columns=["month","value"])
