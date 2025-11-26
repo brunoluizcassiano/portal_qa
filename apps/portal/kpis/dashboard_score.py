@@ -203,9 +203,8 @@ def pagina_dashboard_score():
 
     # zc: garantir projectKey e month/year (se houver "created")
     if not df_zc.empty:
-        # 1) Garantir projectKey compatível com a tela de KPI
+        # 1) Garantir projectKey se ainda não existir ou estiver vazio
         if "projectKey" not in df_zc.columns or df_zc["projectKey"].isna().all():
-            # tenta achar colunas equivalentes: project key / project.key / project
             candidates = ["project key", "project.key", "project"]
             cols_norm = {str(c).strip().lower(): c for c in df_zc.columns}
             proj_col = None
@@ -218,7 +217,7 @@ def pagina_dashboard_score():
                 # usa a coluna de projeto real (ex.: 'project.key' = 'TBEM')
                 df_zc["projectKey"] = df_zc[proj_col].astype(str)
             elif "key" in df_zc.columns:
-                # fallback: prefixo da chave do testcase (último recurso)
+                # fallback: prefixo da chave do testcase (ex.: TBEM-T4528 -> TBEM)
                 df_zc["projectKey"] = (
                     df_zc["key"]
                     .astype(str)
@@ -238,7 +237,6 @@ def pagina_dashboard_score():
             df_zc["year"]  = pd.NA
 
         df_zc["projectKey"] = df_zc["projectKey"].astype("category")
-
 
     # ---------------- Filtros topo (Projeto/Ano + Atualizado) ----------------
     # projetos
@@ -277,8 +275,11 @@ def pagina_dashboard_score():
         st.caption("Clique em um card para alternar o gráfico.")
 
     # ---------------- Aplicar filtros (Projeto + Ano) ----------------
-    def _apply_project(df: pd.DataFrame) -> pd.DataFrame:
-        """Filtro padrão por tribo + ano baseado em projectKey (quando disponível)."""
+    def _filter_issues_or_bugs(df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Filtro padrão de tribo + ano para issues/bugs baseado em projectKey,
+        igual ao que é feito na tela de KPI.
+        """
         if df.empty:
             return df
         if sel_project == "Todos":
@@ -287,6 +288,49 @@ def pagina_dashboard_score():
             df2 = df[df["projectKey"].astype(str) == str(sel_project)].copy()
             return apply_year_filter(df2, sel_year)
         return apply_year_filter(df, sel_year)
+
+    def _filter_testcases(df_tc_in: pd.DataFrame) -> pd.DataFrame:
+        """
+        Filtra test cases por tribo (projeto) usando:
+        - coluna de projeto (projectKey / project.key / project); ou
+        - prefixo da chave do teste (ex.: 'TBEM-T4528' → 'TBEM'), se não existir coluna de projeto.
+
+        Depois aplica o filtro de ano (created/year), igual à tela de KPI.
+        """
+        if df_tc_in.empty:
+            return df_tc_in
+
+        df_tc = df_tc_in.copy()
+
+        if sel_project != "Todos":
+            pk = str(sel_project).upper()
+
+            # tenta achar coluna de projeto
+            candidates = ["projectKey", "project key", "project.key", "project"]
+            cols_norm = {str(c).strip().lower(): c for c in df_tc.columns}
+            col_proj = None
+            for cand in candidates:
+                if cand.lower() in cols_norm:
+                    col_proj = cols_norm[cand.lower()]
+                    break
+
+            if col_proj:
+                df_tc = df_tc[df_tc[col_proj].astype(str).str.upper() == pk].copy()
+            else:
+                # fallback: usa prefixo da chave do teste (TBEM-T4528 → TBEM)
+                key_col = None
+                for cand in ["testcasekey", "testCaseKey", "key", "id"]:
+                    if cand in df_tc.columns:
+                        key_col = cand
+                        break
+                if key_col:
+                    df_tc["_tribe_from_tc_key"] = (
+                        df_tc[key_col].astype(str).str.split("-", n=1).str[0]
+                    )
+                    df_tc = df_tc[df_tc["_tribe_from_tc_key"].str.upper() == pk].copy()
+                    df_tc.drop(columns=["_tribe_from_tc_key"], inplace=True)
+
+        return apply_year_filter(df_tc, sel_year)
 
     def _filter_executions(df_ze_in: pd.DataFrame) -> pd.DataFrame:
         """Filtra execuções por tribo + ano usando o prefixo da chave de execução.
@@ -318,12 +362,13 @@ def pagina_dashboard_score():
 
         return apply_year_filter(df_exec, sel_year)
 
-    df_func_f   = _apply_project(df_func)
-    df_epic_f   = _apply_project(df_epic)
-    df_story_f  = _apply_project(df_story)
-    df_bug_f    = _apply_project(df_bug)
-    df_subbug_f = _apply_project(df_subbug)
-    df_zc_f     = _apply_project(df_zc) if not df_zc.empty else df_zc
+    # aplica os filtros
+    df_func_f   = _filter_issues_or_bugs(df_func)
+    df_epic_f   = _filter_issues_or_bugs(df_epic)
+    df_story_f  = _filter_issues_or_bugs(df_story)
+    df_bug_f    = _filter_issues_or_bugs(df_bug)
+    df_subbug_f = _filter_issues_or_bugs(df_subbug)
+    df_zc_f     = _filter_testcases(df_zc) if not df_zc.empty else df_zc
     df_ze_f     = _filter_executions(df_ze) if not df_ze.empty else df_ze
 
     # Base combinada de issues (mesmo universo da tela KPI)
@@ -342,7 +387,7 @@ def pagina_dashboard_score():
         df_zc_f,
     )
 
-    # Test Avg Per Issue (mantendo a lógica de execuções que você já usava)
+    # Test Avg Per Issue (mantendo a lógica de execuções)
     if not df_ze_f.empty and "issueKey" in df_ze_f.columns:
         by_issue = df_ze_f.dropna(subset=["issueKey"]).groupby("issueKey").size()
         test_avg = float(by_issue.mean()) if not by_issue.empty else 0.0
