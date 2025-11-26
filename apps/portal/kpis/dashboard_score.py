@@ -4,11 +4,6 @@ import pandas as pd
 import numpy as np
 import altair as alt
 
-from .dashboard_kpi import (
-    _compute_total_coverage,
-    _monthly_series_coverage_cumulative,
-)
-
 from .analytics.constants import (
     WARN_RATIO, KPI_LASTUPDATE,
     JIRA_FUNC, JIRA_EPIC, JIRA_STORY, JIRA_BUG, JIRA_SUBBUG, JIRA_PROJ,
@@ -97,60 +92,6 @@ def score_negative(neg_pct: float) -> int:
 def score_bug_days(days_avg: float) -> int:
     return _score_lower_better(days_avg, t4_max=2.0, t3_max=3.0, t2_max=5.0)
 
-
-def _find_execution_date_column(df: pd.DataFrame):
-    """Tenta descobrir a coluna de data em df de execuções (Zephyr).
-
-    Prioridade:
-    1) actualEndDate (data de término real da execução)
-    2) outros campos de execução / início
-    3) created (fallback)
-    """
-    if df is None or df.empty:
-        return None
-
-    preferred_cols = [
-        "actualEndDate",
-        "actual_end_date",
-        "executionDate",
-        "execution_date",
-    ]
-    for col in df.columns:
-        if str(col) in preferred_cols:
-            return col
-
-    patterns = ["actualenddate", "actualend", "enddate", "execut", "execution", "start", "created"]
-    for pattern in patterns:
-        for col in df.columns:
-            if pattern in str(col).lower():
-                return col
-
-    return None
-
-
-def _ensure_exec_month_year(df: pd.DataFrame) -> pd.DataFrame:
-    """Garante colunas 'month' (YYYY-MM) e 'year' em um DF de execuções.
-
-    Usa a melhor coluna de data disponível (actualEndDate, executionDate, ...).
-    Se já existir 'month' com valores não nulos, mantém como está.
-    """
-    if df is None or df.empty:
-        return df
-
-    if "month" in df.columns and df["month"].notna().any():
-        # já possui month preenchido, não força nada
-        return df
-
-    date_col = _find_execution_date_column(df)
-    if not date_col or date_col not in df.columns:
-        return df
-
-    df2 = df.copy()
-    dt = pd.to_datetime(df2[date_col], errors="coerce", utc=True)
-    df2["month"] = dt.dt.strftime("%Y-%m")
-    df2["year"] = dt.dt.year.astype("Int64")
-    return df2
-
 # --------------------------------------------------------------------
 # Página
 # --------------------------------------------------------------------
@@ -194,7 +135,6 @@ def pagina_dashboard_score():
     df_ze         = ensure_project_on_executions(
                         safe_read_csv([ZEPHYR_EXEC_MAIN, ZEPHYR_EXEC_FALLBACK])
                     )  # execuções (month/year/projectKey)
-    df_ze         = _ensure_exec_month_year(df_ze)
 
     # normaliza issues (id, key, projectKey, month, year)
     df_func   = normalize_issue_df(df_func_raw)
@@ -203,31 +143,11 @@ def pagina_dashboard_score():
 
     # zc: garantir projectKey e month/year (se houver "created")
     if not df_zc.empty:
-        # 1) Garantir projectKey se ainda não existir ou estiver vazio
-        if "projectKey" not in df_zc.columns or df_zc["projectKey"].isna().all():
-            candidates = ["project key", "project.key", "project"]
-            cols_norm = {str(c).strip().lower(): c for c in df_zc.columns}
-            proj_col = None
-            for cand in candidates:
-                if cand.lower() in cols_norm:
-                    proj_col = cols_norm[cand.lower()]
-                    break
-
-            if proj_col:
-                # usa a coluna de projeto real (ex.: 'project.key' = 'TBEM')
-                df_zc["projectKey"] = df_zc[proj_col].astype(str)
-            elif "key" in df_zc.columns:
-                # fallback: prefixo da chave do testcase (ex.: TBEM-T4528 -> TBEM)
-                df_zc["projectKey"] = (
-                    df_zc["key"]
-                    .astype(str)
-                    .str.extract(r"^([A-Z0-9_]+)-", expand=False)
-                    .fillna("")
-                )
+        if "projectKey" not in df_zc.columns:
+            if "key" in df_zc.columns:
+                df_zc["projectKey"] = df_zc["key"].astype(str).str.extract(r"^([A-Z0-9_]+)-", expand=False).fillna("")
             else:
                 df_zc["projectKey"] = ""
-
-        # 2) Garantir month/year a partir de created (para filtro de ano)
         if "created" in df_zc.columns:
             cdt = pd.to_datetime(df_zc["created"], errors="coerce", utc=True)
             df_zc["month"] = cdt.dt.strftime("%Y-%m")
@@ -235,7 +155,6 @@ def pagina_dashboard_score():
         else:
             df_zc["month"] = pd.NA
             df_zc["year"]  = pd.NA
-
         df_zc["projectKey"] = df_zc["projectKey"].astype("category")
 
     # ---------------- Filtros topo (Projeto/Ano + Atualizado) ----------------
@@ -275,119 +194,26 @@ def pagina_dashboard_score():
         st.caption("Clique em um card para alternar o gráfico.")
 
     # ---------------- Aplicar filtros (Projeto + Ano) ----------------
-    def _filter_issues_or_bugs(df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Filtro padrão de tribo + ano para issues/bugs baseado em projectKey,
-        igual ao que é feito na tela de KPI.
-        """
-        if df.empty:
-            return df
-        if sel_project == "Todos":
-            return apply_year_filter(df, sel_year)
+    def _apply_project(df: pd.DataFrame) -> pd.DataFrame:
+        if df.empty or sel_project == "Todos": return apply_year_filter(df, sel_year)
         if "projectKey" in df.columns:
             df2 = df[df["projectKey"].astype(str) == str(sel_project)].copy()
             return apply_year_filter(df2, sel_year)
         return apply_year_filter(df, sel_year)
 
-    def _filter_testcases(df_tc_in: pd.DataFrame) -> pd.DataFrame:
-        """
-        Filtra test cases por tribo (projeto) usando:
-        - coluna de projeto (projectKey / project.key / project); ou
-        - prefixo da chave do teste (ex.: 'TBEM-T4528' → 'TBEM'), se não existir coluna de projeto.
-
-        Depois aplica o filtro de ano (created/year), igual à tela de KPI.
-        """
-        if df_tc_in.empty:
-            return df_tc_in
-
-        df_tc = df_tc_in.copy()
-
-        if sel_project != "Todos":
-            pk = str(sel_project).upper()
-
-            # tenta achar coluna de projeto
-            candidates = ["projectKey", "project key", "project.key", "project"]
-            cols_norm = {str(c).strip().lower(): c for c in df_tc.columns}
-            col_proj = None
-            for cand in candidates:
-                if cand.lower() in cols_norm:
-                    col_proj = cols_norm[cand.lower()]
-                    break
-
-            if col_proj:
-                df_tc = df_tc[df_tc[col_proj].astype(str).str.upper() == pk].copy()
-            else:
-                # fallback: usa prefixo da chave do teste (TBEM-T4528 → TBEM)
-                key_col = None
-                for cand in ["testcasekey", "testCaseKey", "key", "id"]:
-                    if cand in df_tc.columns:
-                        key_col = cand
-                        break
-                if key_col:
-                    df_tc["_tribe_from_tc_key"] = (
-                        df_tc[key_col].astype(str).str.split("-", n=1).str[0]
-                    )
-                    df_tc = df_tc[df_tc["_tribe_from_tc_key"].str.upper() == pk].copy()
-                    df_tc.drop(columns=["_tribe_from_tc_key"], inplace=True)
-
-        return apply_year_filter(df_tc, sel_year)
-
-    def _filter_executions(df_ze_in: pd.DataFrame) -> pd.DataFrame:
-        """Filtra execuções por tribo + ano usando o prefixo da chave de execução.
-
-        Exemplo: TRBC-E9872 -> tribo/projeto = 'TRBC'.
-        """
-        if df_ze_in.empty:
-            return df_ze_in
-
-        # garante colunas month/year consistentes com a data de execução
-        df_exec = _ensure_exec_month_year(df_ze_in.copy())
-
-        if sel_project != "Todos":
-            pk = str(sel_project)
-
-            # tenta descobrir a coluna que contém a chave da execução
-            exec_key_col = None
-            for cand in ["key", "testExecutionKey", "testexecutionkey", "testExecution.key", "testexecution.key"]:
-                if cand in df_exec.columns:
-                    exec_key_col = cand
-                    break
-
-            if exec_key_col:
-                df_exec["_tribe_from_exec_key"] = (
-                    df_exec[exec_key_col].astype(str).str.split("-", n=1).str[0]
-                )
-                df_exec = df_exec[df_exec["_tribe_from_exec_key"] == pk].copy()
-                df_exec.drop(columns=["_tribe_from_exec_key"], inplace=True)
-
-        return apply_year_filter(df_exec, sel_year)
-
-    # aplica os filtros
-    df_func_f   = _filter_issues_or_bugs(df_func)
-    df_epic_f   = _filter_issues_or_bugs(df_epic)
-    df_story_f  = _filter_issues_or_bugs(df_story)
-    df_bug_f    = _filter_issues_or_bugs(df_bug)
-    df_subbug_f = _filter_issues_or_bugs(df_subbug)
-    df_zc_f     = _filter_testcases(df_zc) if not df_zc.empty else df_zc
-    df_ze_f     = _filter_executions(df_ze) if not df_ze.empty else df_ze
-
-    # Base combinada de issues (mesmo universo da tela KPI)
-    base_issues_sel = pd.concat(
-        [df_func_f, df_story_f, df_epic_f],
-        ignore_index=True,
-    )
+    df_func_f   = _apply_project(df_func)
+    df_epic_f   = _apply_project(df_epic)
+    df_story_f  = _apply_project(df_story)
+    df_bug_f    = _apply_project(df_bug)
+    df_subbug_f = _apply_project(df_subbug)
+    df_zc_f     = _apply_project(df_zc) if not df_zc.empty else df_zc
+    df_ze_f     = _apply_project(df_ze) if not df_ze.empty else df_ze
 
     # ---------------- Métricas brutas ----------------
-    # % Total Coverage com a MESMA lógica da tela KPI:
-    # % de EPIC/STORY/FUNC que possuem pelo menos 1 test case linkado
-    coverage_pct = _compute_total_coverage(
-        df_story_f,
-        df_epic_f,
-        df_func_f,
-        df_zc_f,
-    )
+    cov_num = len(df_func_f) + len(df_story_f)
+    cov_den = cov_num + len(df_epic_f)
+    coverage_pct = _pct(cov_num, cov_den)
 
-    # Test Avg Per Issue (mantendo a lógica de execuções)
     if not df_ze_f.empty and "issueKey" in df_ze_f.columns:
         by_issue = df_ze_f.dropna(subset=["issueKey"]).groupby("issueKey").size()
         test_avg = float(by_issue.mean()) if not by_issue.empty else 0.0
@@ -490,24 +316,16 @@ def pagina_dashboard_score():
 
     # ---------------- Séries mensais (nota base 1–4 do indicador) ----------------
     def series_coverage():
-        """
-        Série mensal da nota de % Total Coverage (1–4),
-        usando a MESMA lógica da tela de KPI:
-
-        1. Calcula o % de coverage mês a mês de forma cumulativa
-           com _monthly_series_coverage_cumulative(base_issues_sel, df_zc_f);
-        2. Converte o % de cada mês em nota base (1–4) com score_coverage.
-        """
-        if base_issues_sel is None or base_issues_sel.empty or df_zc_f is None:
-            return pd.DataFrame(columns=["month", "value"])
-
-        df_cov = _monthly_series_coverage_cumulative(base_issues_sel, df_zc_f)
-        if df_cov.empty:
-            return pd.DataFrame(columns=["month", "value"])
-
-        df_cov = df_cov.copy()
-        df_cov["value"] = df_cov["value"].apply(lambda v: float(score_coverage(float(v))))
-        return df_cov[["month", "value"]]
+        def agg(df): return df.groupby("month").size().rename("n") if "month" in df.columns else pd.Series(dtype=int)
+        s_func, s_story, s_epic = agg(df_func_f), agg(df_story_f), agg(df_epic_f)
+        idx = sorted(set(s_func.index) | set(s_story.index) | set(s_epic.index))
+        rows = []
+        for m in idx:
+            num = int(s_func.get(m,0) + s_story.get(m,0))
+            den = int(num + s_epic.get(m,0))
+            cov = _pct(num, den)
+            rows.append({"month": m, "value": float(score_coverage(cov))})
+        return pd.DataFrame(rows)
 
     def series_test_avg():
         if df_ze_f.empty or "issueKey" not in df_ze_f.columns: return pd.DataFrame(columns=["month","value"])
