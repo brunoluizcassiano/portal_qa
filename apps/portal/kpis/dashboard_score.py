@@ -203,11 +203,32 @@ def pagina_dashboard_score():
 
     # zc: garantir projectKey e month/year (se houver "created")
     if not df_zc.empty:
-        if "projectKey" not in df_zc.columns:
-            if "key" in df_zc.columns:
-                df_zc["projectKey"] = df_zc["key"].astype(str).str.extract(r"^([A-Z0-9_]+)-", expand=False).fillna("")
+        # 1) Garantir projectKey compatível com a tela de KPI
+        if "projectKey" not in df_zc.columns or df_zc["projectKey"].isna().all():
+            # tenta achar colunas equivalentes: project key / project.key / project
+            candidates = ["project key", "project.key", "project"]
+            cols_norm = {str(c).strip().lower(): c for c in df_zc.columns}
+            proj_col = None
+            for cand in candidates:
+                if cand.lower() in cols_norm:
+                    proj_col = cols_norm[cand.lower()]
+                    break
+
+            if proj_col:
+                # usa a coluna de projeto real (ex.: 'project.key' = 'TBEM')
+                df_zc["projectKey"] = df_zc[proj_col].astype(str)
+            elif "key" in df_zc.columns:
+                # fallback: prefixo da chave do testcase (último recurso)
+                df_zc["projectKey"] = (
+                    df_zc["key"]
+                    .astype(str)
+                    .str.extract(r"^([A-Z0-9_]+)-", expand=False)
+                    .fillna("")
+                )
             else:
                 df_zc["projectKey"] = ""
+
+        # 2) Garantir month/year a partir de created (para filtro de ano)
         if "created" in df_zc.columns:
             cdt = pd.to_datetime(df_zc["created"], errors="coerce", utc=True)
             df_zc["month"] = cdt.dt.strftime("%Y-%m")
@@ -215,7 +236,9 @@ def pagina_dashboard_score():
         else:
             df_zc["month"] = pd.NA
             df_zc["year"]  = pd.NA
+
         df_zc["projectKey"] = df_zc["projectKey"].astype("category")
+
 
     # ---------------- Filtros topo (Projeto/Ano + Atualizado) ----------------
     # projetos
