@@ -4,7 +4,10 @@ import pandas as pd
 import numpy as np
 import altair as alt
 
-from .dashboard_kpi import _compute_total_coverage
+from .dashboard_kpi import (
+    _compute_total_coverage,
+    _monthly_series_coverage_cumulative,
+)
 
 from .analytics.constants import (
     WARN_RATIO, KPI_LASTUPDATE,
@@ -300,10 +303,22 @@ def pagina_dashboard_score():
     df_zc_f     = _apply_project(df_zc) if not df_zc.empty else df_zc
     df_ze_f     = _filter_executions(df_ze) if not df_ze.empty else df_ze
 
+    # Base combinada de issues (mesmo universo da tela KPI)
+    base_issues_sel = pd.concat(
+        [df_func_f, df_story_f, df_epic_f],
+        ignore_index=True,
+    )
+
     # ---------------- Métricas brutas ----------------
-    # Total Coverage alinhado com a tela de KPI:
-    # % de EPIC/STORY/FUNC que possuem pelo menos 1 test case linkado no Zephyr
-    coverage_pct = _compute_total_coverage(df_story_f, df_epic_f, df_func_f, df_zc_f)
+    # % Total Coverage com a MESMA lógica da tela KPI:
+    # % de EPIC/STORY/FUNC que possuem pelo menos 1 test case linkado
+    coverage_pct = _compute_total_coverage(
+        df_story_f,
+        df_epic_f,
+        df_func_f,
+        df_zc_f,
+    )
+
 
     if not df_ze_f.empty and "issueKey" in df_ze_f.columns:
         by_issue = df_ze_f.dropna(subset=["issueKey"]).groupby("issueKey").size()
